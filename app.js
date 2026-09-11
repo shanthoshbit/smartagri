@@ -1,33 +1,27 @@
 /**
- * SmartAgri – app.js
+ * SmartAgri – app.js  v2.1
  * ESP32 Agriculture Automation Dashboard
  *
- * Architecture:
- *  - Firebase Modular SDK (v10+)
- *  - Firebase Authentication (email / password)
- *  - Firebase Realtime Database (onValue listeners)
- *  - Water Pump timer uses absolute endTime stored in Firebase
- *    so the ESP32 can enforce shutoff independently of the browser.
+ * Changes in v2.1:
+ *  - Timer settings collapsed by default (accordion button)
+ *  - Inline remaining-time display on pump card (always visible when active)
+ *  - Toast notifications moved to top-right
+ *  - Improved mobile UX
  *
- * GPIO Map:
- *  16 → Water Pump
- *  17 → Solenoid Valve 1
- *  18 → Solenoid Valve 2
- *  19 → Solenoid Valve 3
- *  25 → Agriculture Light
- *  26 → Exhaust / Farm Fan
+ * Firebase Modular SDK v10
+ * GPIO Map: 16=Pump · 17=V1 · 18=V2 · 19=V3 · 25=Light · 26=Fan
  */
 
-/* ============================================================
+/* ═══════════════════════════════════════════════════════════
    1. FIREBASE CONFIGURATION
-   ============================================================ */
-import { initializeApp }                     from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword,
-         signOut, onAuthStateChanged }        from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getDatabase, ref, onValue, set,
-         update, serverTimestamp }            from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+═══════════════════════════════════════════════════════════ */
+import { initializeApp }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getDatabase, ref, onValue, set, update, get }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-/** Firebase project configuration (no password stored here) */
 const firebaseConfig = {
     apiKey:            "AIzaSyD6y_ybBXjnSQ2uhv265U3c7rGW0V6tOA0",
     authDomain:        "smartagri-8bd16.firebaseapp.com",
@@ -38,40 +32,40 @@ const firebaseConfig = {
     appId:             "1:946746280886:web:efde01fbcc93b85cc78f17"
 };
 
-const app  = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db   = getDatabase(app);
+const fbApp = initializeApp(firebaseConfig);
+const auth  = getAuth(fbApp);
+const db    = getDatabase(fbApp);
 
-/* ============================================================
-   2. DOM ELEMENT REFERENCES
-   ============================================================ */
+/* ═══════════════════════════════════════════════════════════
+   2. DOM REFERENCES
+═══════════════════════════════════════════════════════════ */
 const $ = id => document.getElementById(id);
 
 // Screens
-const loadingScreen  = $("loading-screen");
-const loginScreen    = $("login-screen");
-const dashboard      = $("dashboard");
+const elLoading   = $("loading-screen");
+const elLogin     = $("login-screen");
+const elDashboard = $("dashboard");
 
-// Login form
-const loginForm      = $("login-form");
-const loginEmail     = $("login-email");
-const loginPassword  = $("login-password");
-const togglePwdBtn   = $("toggle-password");
-const loginBtn       = $("login-btn");
-const loginError     = $("login-error");
+// Login
+const loginForm    = $("login-form");
+const loginEmail   = $("login-email");
+const loginPwd     = $("login-password");
+const togglePwdBtn = $("toggle-password");
+const loginBtn     = $("login-btn");
+const loginError   = $("login-error");
 
 // Header
-const headerEmail    = $("header-email");
-const logoutBtn      = $("logout-btn");
-const headerFbBadge  = $("header-firebase-badge");
-const headerTime     = $("header-time");
+const headerEmail      = $("header-email");
+const logoutBtn        = $("logout-btn");
+const headerFbBadge    = $("header-firebase-badge");
+const headerTime       = $("header-time");
 
-// Status bar
-const sbFirebase     = $("sb-firebase");
-const sbEsp32        = $("sb-esp32");
-const sbActiveCount  = $("sb-active-count");
-const sbLastSeen     = $("sb-last-seen");
-const firebaseErrBanner = $("firebase-error-banner");
+// Status strip
+const sbFirebase    = $("sb-firebase");
+const sbEsp32       = $("sb-esp32");
+const sbActiveCount = $("sb-active-count");
+const sbLastSeen    = $("sb-last-seen");
+const errBanner     = $("firebase-error-banner");
 
 // Device toggles
 const deviceToggles = {
@@ -83,8 +77,8 @@ const deviceToggles = {
     fan:    $("fan-toggle"),
 };
 
-// Device status elements
-const deviceStatusDots = {
+// Device status dots/labels
+const statusDots = {
     pump:   $("pump-status-dot"),
     valve1: $("valve1-status-dot"),
     valve2: $("valve2-status-dot"),
@@ -92,7 +86,7 @@ const deviceStatusDots = {
     light:  $("light-status-dot"),
     fan:    $("fan-status-dot"),
 };
-const deviceStatusLabels = {
+const statusLabels = {
     pump:   $("pump-status-label"),
     valve1: $("valve1-status-label"),
     valve2: $("valve2-status-label"),
@@ -109,29 +103,38 @@ const deviceCards = {
     fan:    $("card-fan"),
 };
 
-// Timer UI elements
-const presetBtns         = document.querySelectorAll(".preset-btn");
-const timerHoursInput    = $("timer-hours");
-const timerMinutesInput  = $("timer-minutes");
-const timerSecondsInput  = $("timer-seconds");
-const startTimerBtn      = $("start-timer-btn");
-const stopTimerBtn       = $("stop-timer-btn");
-const timerActiveDisplay = $("timer-active-display");
-const timerRemaining     = $("timer-remaining");
-const timerProgressBar   = $("timer-progress-bar");
-const timerCompletedDisp = $("timer-completed-display");
-const pumpModeBadge      = $("pump-mode-badge");
+// Pump-specific
+const pumpModeBadge   = $("pump-mode-badge");
 
-/* ============================================================
-   3. APPLICATION STATE
-   ============================================================ */
-let firebaseConnected   = false;  // tracks DB connectivity
-let timerIntervalId     = null;   // JS countdown interval (display only)
-let timerEndTime        = 0;      // absolute timestamp (ms) from Firebase
-let timerDuration       = 0;      // total duration (seconds) from Firebase
-let ignorePumpToggleOnce = false; // prevents feedback loop when Firebase → UI
+// Inline timer display (always-visible when active)
+const pumpTimerMini       = $("pump-timer-mini");
+const pumpRemainingInline = $("pump-remaining-inline");
+const pumpProgressWrap    = $("pump-progress-wrap");
+const pumpProgressBar     = $("pump-progress-bar");
 
-// Map of device key → Firebase path segment
+// Timer accordion
+const timerToggleBtn  = $("timer-toggle-btn");
+const timerPanel      = $("timer-panel");
+
+// Timer inputs & buttons
+const presetBtns        = document.querySelectorAll(".preset-btn");
+const timerHoursInput   = $("timer-hours");
+const timerMinsInput    = $("timer-minutes");
+const timerSecsInput    = $("timer-seconds");
+const startTimerBtn     = $("start-timer-btn");
+const stopTimerBtn      = $("stop-timer-btn");
+const timerCompletedDiv = $("timer-completed-display");
+
+/* ═══════════════════════════════════════════════════════════
+   3. STATE
+═══════════════════════════════════════════════════════════ */
+let firebaseConnected        = false;
+let timerIntervalId          = null;
+let timerEndTime             = 0;   // absolute ms
+let timerDuration            = 0;   // seconds
+let ignorePumpToggle         = false;
+let dashboardInitialized     = false;
+
 const DEVICE_PATHS = {
     pump:   "waterPump",
     valve1: "valve1",
@@ -141,73 +144,56 @@ const DEVICE_PATHS = {
     fan:    "fan",
 };
 
-/* ============================================================
+/* ═══════════════════════════════════════════════════════════
    4. UTILITIES
-   ============================================================ */
+═══════════════════════════════════════════════════════════ */
+const show = el => el.classList.remove("hidden");
+const hide = el => el.classList.add("hidden");
 
-/** Show / hide an element */
-function show(el) { el.classList.remove("hidden"); }
-function hide(el) { el.classList.add("hidden"); }
-
-/** Format milliseconds remaining into HH:MM:SS */
-function formatCountdown(ms) {
-    const totalSec = Math.max(0, Math.ceil(ms / 1000));
-    const h = Math.floor(totalSec / 3600);
-    const m = Math.floor((totalSec % 3600) / 60);
-    const s = totalSec % 60;
-    return [h, m, s].map(n => String(n).padStart(2, "0")).join(":");
+function formatHMS(ms) {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    return [h, m, sec].map(n => String(n).padStart(2, "0")).join(":");
 }
 
-/** Format a Unix timestamp to a human-readable time */
 function formatTime(ts) {
     if (!ts) return "—";
-    const d = new Date(ts);
-    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-/* ============================================================
+function durationLabel(h, m, s) {
+    const p = [];
+    if (h) p.push(`${h}h`);
+    if (m) p.push(`${m}m`);
+    if (s) p.push(`${s}s`);
+    return p.join(" ") || "0s";
+}
+
+/* ═══════════════════════════════════════════════════════════
    5. TOAST NOTIFICATIONS
-   ============================================================ */
+═══════════════════════════════════════════════════════════ */
+const ICONS = { success: "✅", error: "❌", warning: "⚠️", info: "ℹ️" };
 
-const TOAST_ICONS = {
-    success: "✅",
-    error:   "❌",
-    warning: "⚠️",
-    info:    "ℹ️",
-};
-
-/**
- * Show a toast notification.
- * @param {string} message  - Main message text
- * @param {'success'|'error'|'warning'|'info'} type
- * @param {string} [title]  - Optional bold title
- * @param {number} [duration] - Auto-dismiss ms (default 3500)
- */
 function showToast(message, type = "info", title = "", duration = 3500) {
     const container = $("toast-container");
     const toast = document.createElement("div");
     toast.className = `toast toast-${type}`;
     toast.setAttribute("role", "alert");
-
     toast.innerHTML = `
-        <span class="toast-icon" aria-hidden="true">${TOAST_ICONS[type] ?? "ℹ️"}</span>
+        <span class="toast-icon">${ICONS[type] ?? "ℹ️"}</span>
         <div class="toast-body">
             ${title ? `<div class="toast-title">${title}</div>` : ""}
             <div class="toast-msg">${message}</div>
         </div>
-        <button class="toast-close" aria-label="Dismiss notification">✕</button>
-    `;
+        <button class="toast-close" aria-label="Dismiss">✕</button>`;
 
-    // Close on click
-    toast.querySelector(".toast-close").addEventListener("click", () => dismissToast(toast));
+    const closeBtn = toast.querySelector(".toast-close");
+    const autoTimer = setTimeout(() => dismissToast(toast), duration);
+    closeBtn.addEventListener("click", () => { clearTimeout(autoTimer); dismissToast(toast); });
 
     container.appendChild(toast);
-
-    // Auto dismiss
-    const timer = setTimeout(() => dismissToast(toast), duration);
-
-    // Cancel auto-dismiss if manually closed
-    toast.querySelector(".toast-close").addEventListener("click", () => clearTimeout(timer), { once: true });
 }
 
 function dismissToast(toast) {
@@ -215,556 +201,433 @@ function dismissToast(toast) {
     toast.addEventListener("animationend", () => toast.remove(), { once: true });
 }
 
-/* ============================================================
-   6. LOADING + SCREEN TRANSITIONS
-   ============================================================ */
-
+/* ═══════════════════════════════════════════════════════════
+   6. SCREEN TRANSITIONS
+═══════════════════════════════════════════════════════════ */
 function hideLoading() {
-    loadingScreen.classList.add("fade-out");
+    elLoading.classList.add("fade-out");
 }
 
-function showLoginScreen() {
+function showLogin() {
     hideLoading();
-    show(loginScreen);
-    hide(dashboard);
+    show(elLogin);
+    hide(elDashboard);
 }
 
 function showDashboard(user) {
     hideLoading();
-    hide(loginScreen);
-    show(dashboard);
-    // Set logged-in email in header
-    headerEmail.textContent = user.email ?? "Unknown User";
-    // Start clock
+    hide(elLogin);
+    show(elDashboard);
+    headerEmail.textContent = user.email ?? "";
     startClock();
 }
 
-/* ============================================================
-   7. CLOCK (header)
-   ============================================================ */
+/* ═══════════════════════════════════════════════════════════
+   7. CLOCK
+═══════════════════════════════════════════════════════════ */
 function startClock() {
-    function tick() {
+    const tick = () => {
         headerTime.textContent = new Date().toLocaleTimeString([], {
             hour: "2-digit", minute: "2-digit", second: "2-digit"
         });
-    }
+    };
     tick();
     setInterval(tick, 1000);
 }
 
-/* ============================================================
-   8. FIREBASE CONNECTION INDICATOR
-   ============================================================ */
-
-/**
- * Monitor Firebase .info/connected to reflect real-time
- * connectivity in the header and status bar.
- */
+/* ═══════════════════════════════════════════════════════════
+   8. FIREBASE CONNECTION STATUS
+═══════════════════════════════════════════════════════════ */
 function watchFirebaseConnection() {
-    const connRef = ref(db, ".info/connected");
-    onValue(connRef, (snapshot) => {
-        firebaseConnected = snapshot.val() === true;
+    onValue(ref(db, ".info/connected"), snap => {
+        firebaseConnected = snap.val() === true;
+
+        const status = firebaseConnected ? "connected" : "disconnected";
+        setConnectionBadge(headerFbBadge, "conn", status,
+            firebaseConnected ? "Connected" : "Disconnected");
+        setConnectionBadge(sbFirebase, "pill", status,
+            firebaseConnected ? "Connected" : "Disconnected");
 
         if (firebaseConnected) {
-            setFirebaseStatus("connected");
+            hide(errBanner);
+            document.getElementById("cards-grid").classList.remove("controls-disabled");
             showToast("Firebase connected", "success", "Connection", 2500);
-            enableControls();
         } else {
-            setFirebaseStatus("disconnected");
+            show(errBanner);
+            document.getElementById("cards-grid").classList.add("controls-disabled");
             showToast("Firebase connection lost", "error", "Connection", 4000);
-            disableControls();
         }
     });
 }
 
-function setFirebaseStatus(status) {
-    // Header badge
-    headerFbBadge.className = `status-badge status-${status}`;
-    headerFbBadge.querySelector(".status-label").textContent =
-        status === "connected" ? "Connected" :
-        status === "disconnected" ? "Disconnected" : "Connecting";
-
-    // Status bar pill
-    sbFirebase.className = `status-pill status-${status}`;
-    sbFirebase.querySelector("span:last-child").textContent =
-        status === "connected" ? "Connected" :
-        status === "disconnected" ? "Disconnected" : "Connecting…";
-
-    // Error banner
-    if (status === "disconnected") {
-        show(firebaseErrBanner);
-    } else {
-        hide(firebaseErrBanner);
-    }
-}
-
-function enableControls() {
-    document.getElementById("cards-grid").classList.remove("controls-disabled");
-}
-
-function disableControls() {
-    document.getElementById("cards-grid").classList.add("controls-disabled");
-}
-
-/* ============================================================
-   9. ESP32 ONLINE STATUS
-   ============================================================ */
-
 /**
- * The ESP32 periodically writes a timestamp to /system/lastSeen.
- * If lastSeen is within 15 seconds, we consider it online.
+ * Update a badge/pill element's class and label text.
+ * @param {HTMLElement} el
+ * @param {'conn'|'pill'} prefix   - CSS class prefix
+ * @param {string} status          - e.g. "connected"
+ * @param {string} labelText
  */
+function setConnectionBadge(el, prefix, status, labelText) {
+    // Remove old status class
+    el.classList.forEach(c => { if (c.startsWith(`${prefix}-`)) el.classList.remove(c); });
+    el.classList.add(`${prefix}-${status}`);
+    const span = el.querySelector("span:last-child");
+    if (span) span.textContent = labelText;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   9. ESP32 STATUS
+═══════════════════════════════════════════════════════════ */
 function watchEsp32Status() {
-    const sysRef = ref(db, "system");
-    onValue(sysRef, (snapshot) => {
-        const data = snapshot.val() ?? {};
+    onValue(ref(db, "system"), snap => {
+        const data     = snap.val() ?? {};
         const lastSeen = data.lastSeen ?? 0;
-        const now = Date.now();
-        const isOnline = (now - lastSeen) < 15000;
+        const online   = (Date.now() - lastSeen) < 15000;
 
-        sbEsp32.className = `status-pill status-${isOnline ? "online" : "offline"}`;
-        sbEsp32.querySelector("span:last-child").textContent = isOnline ? "Online" : "Offline";
-
+        sbEsp32.className = "";
+        sbEsp32.classList.add("ss-pill", online ? "pill-online" : "pill-offline");
+        sbEsp32.innerHTML = `<span class="ss-dot"></span><span>${online ? "Online" : "Offline"}</span>`;
         sbLastSeen.textContent = lastSeen ? formatTime(lastSeen) : "—";
     });
 }
 
-/* ============================================================
-   10. DEVICE STATE HELPERS
-   ============================================================ */
-
-/**
- * Update a device card's visual state (status dot, label, toggle, card class).
- * @param {string} deviceKey - e.g. "pump", "valve1"
- * @param {boolean} state
- */
-function updateDeviceUI(deviceKey, state) {
-    const dot    = deviceStatusDots[deviceKey];
-    const label  = deviceStatusLabels[deviceKey];
-    const toggle = deviceToggles[deviceKey];
-    const card   = deviceCards[deviceKey];
-
+/* ═══════════════════════════════════════════════════════════
+   10. DEVICE UI HELPERS
+═══════════════════════════════════════════════════════════ */
+function updateDeviceUI(key, state) {
+    const dot    = statusDots[key];
+    const label  = statusLabels[key];
+    const toggle = deviceToggles[key];
+    const card   = deviceCards[key];
     if (!dot || !label || !toggle || !card) return;
 
-    if (state) {
-        dot.className    = "status-indicator status-on";
-        label.textContent = "ON";
-        label.className  = "status-text on";
-        card.classList.add("card-active");
-    } else {
-        dot.className    = "status-indicator status-off";
-        label.textContent = "OFF";
-        label.className  = "status-text off";
-        card.classList.remove("card-active");
-    }
+    dot.className   = `state-dot ${state ? "dot-on" : "dot-off"}`;
+    label.className = `state-label ${state ? "lbl-on" : "lbl-off"}`;
+    label.textContent = state ? "ON" : "OFF";
+    card.classList.toggle("card-active", state);
 
-    // Sync checkbox without triggering the change handler
     if (toggle.checked !== state) {
-        if (deviceKey === "pump") ignorePumpToggleOnce = true;
+        if (key === "pump") ignorePumpToggle = true;
         toggle.checked = state;
     }
 }
 
-/** Recount and display how many devices are active */
 function updateActiveCount() {
-    let count = 0;
-    Object.values(deviceToggles).forEach(t => { if (t.checked) count++; });
-    sbActiveCount.textContent = String(count);
+    let n = 0;
+    Object.values(deviceToggles).forEach(t => { if (t.checked) n++; });
+    sbActiveCount.textContent = String(n);
 }
 
-/* ============================================================
+/* ═══════════════════════════════════════════════════════════
    11. FIREBASE REALTIME LISTENERS
-   ============================================================ */
-
+═══════════════════════════════════════════════════════════ */
 function startDeviceListeners() {
-    /* ── Simple devices (valve1, valve2, valve3, light, fan) ── */
-    const simpleDevices = ["valve1", "valve2", "valve3", "light", "fan"];
-    simpleDevices.forEach(key => {
-        const path = DEVICE_PATHS[key];
-        onValue(ref(db, `agriculture/${path}/state`), (snap) => {
-            const state = snap.val() === true;
-            updateDeviceUI(key, state);
+    // Simple devices
+    ["valve1", "valve2", "valve3", "light", "fan"].forEach(key => {
+        onValue(ref(db, `agriculture/${DEVICE_PATHS[key]}/state`), snap => {
+            updateDeviceUI(key, snap.val() === true);
             updateActiveCount();
         });
     });
 
-    /* ── Water Pump (state + timer) ── */
-    onValue(ref(db, "agriculture/waterPump"), (snap) => {
-        const data = snap.val() ?? {};
+    // Water pump (state + timer)
+    onValue(ref(db, "agriculture/waterPump"), snap => {
+        const data  = snap.val() ?? {};
         const state = data.state === true;
         const mode  = data.mode ?? "manual";
         const timer = data.timer ?? {};
 
-        // Update pump toggle & status indicator
         updateDeviceUI("pump", state);
         updateActiveCount();
 
         // Mode badge
         pumpModeBadge.textContent = mode === "timer" ? "Timer" : "Manual";
-        pumpModeBadge.className   = `mode-badge ${mode === "timer" ? "mode-timer" : "mode-manual"}`;
+        pumpModeBadge.className   = `mode-chip ${mode === "timer" ? "chip-timer" : "chip-manual"}`;
 
-        // Timer state
+        // Timer
         const timerEnabled = timer.enabled === true;
-        const fbEndTime    = timer.endTime ?? 0;
-        const fbDuration   = timer.duration ?? 0;
+        const fbEnd        = timer.endTime   ?? 0;
+        const fbDur        = timer.duration  ?? 0;
 
-        if (timerEnabled && fbEndTime > 0) {
-            // Timer is active
-            timerEndTime  = fbEndTime;
-            timerDuration = fbDuration;
-
-            const remaining = timerEndTime - Date.now();
-            if (remaining > 0) {
-                showTimerActive();
-                startCountdownDisplay();
+        if (timerEnabled && fbEnd > 0) {
+            timerEndTime  = fbEnd;
+            timerDuration = fbDur;
+            const rem = timerEndTime - Date.now();
+            if (rem > 0) {
+                showPumpTimerActive();
+                startCountdown();
             } else {
-                // Timer already expired
                 handleTimerExpired();
             }
         } else {
-            // Timer is not active
-            stopCountdownDisplay();
-            hide(timerActiveDisplay);
-
-            // Show completed message briefly if pump was just turned off by timer
+            stopCountdown();
+            hidePumpTimerActive();
             if (!state && mode === "timer") {
-                showTimerCompleted();
+                showTimerDone();
             } else {
-                hide(timerCompletedDisp);
+                hide(timerCompletedDiv);
             }
         }
     });
 }
 
-/* ============================================================
-   12. DEVICE CONTROL – TOGGLE HANDLERS
-   ============================================================ */
-
-/**
- * Generic simple-device toggle handler.
- * @param {string} deviceKey
- * @param {string} firebasePath
- */
-function bindSimpleToggle(deviceKey, firebasePath) {
-    deviceToggles[deviceKey].addEventListener("change", async (e) => {
-        const newState = e.target.checked;
+/* ═══════════════════════════════════════════════════════════
+   12. DEVICE TOGGLE HANDLERS
+═══════════════════════════════════════════════════════════ */
+function bindSimpleToggle(key, path) {
+    deviceToggles[key].addEventListener("change", async e => {
+        const on = e.target.checked;
         try {
-            await set(ref(db, `agriculture/${firebasePath}/state`), newState);
+            await set(ref(db, `agriculture/${path}/state`), on);
             showToast(
-                `${deviceKey.charAt(0).toUpperCase() + deviceKey.slice(1)} turned ${newState ? "ON" : "OFF"}`,
-                newState ? "success" : "info",
+                `${deviceLabel(key)} turned ${on ? "ON" : "OFF"}`,
+                on ? "success" : "info",
                 "Device Control"
             );
         } catch (err) {
-            console.error(`Toggle ${deviceKey} error:`, err);
-            showToast(`Unable to update ${deviceKey}. Check your connection.`, "error", "Error");
-            // Revert toggle visually
-            e.target.checked = !newState;
+            console.error(err);
+            showToast(`Unable to update ${deviceLabel(key)}. Check connection.`, "error", "Error");
+            e.target.checked = !on;
         }
     });
 }
 
-/**
- * Pump toggle handler (also cancels active timer if turned OFF manually).
- */
 function bindPumpToggle() {
-    deviceToggles.pump.addEventListener("change", async (e) => {
-        // Ignore if this change was triggered by Firebase → UI sync
-        if (ignorePumpToggleOnce) {
-            ignorePumpToggleOnce = false;
-            return;
-        }
-
-        const newState = e.target.checked;
-
+    deviceToggles.pump.addEventListener("change", async e => {
+        if (ignorePumpToggle) { ignorePumpToggle = false; return; }
+        const on = e.target.checked;
         try {
-            if (!newState) {
-                // Manual OFF → also cancel timer
-                await update(ref(db, "agriculture/waterPump"), {
-                    state: false,
-                    mode:  "manual",
-                });
-                await update(ref(db, "agriculture/waterPump/timer"), {
-                    enabled:   false,
-                    startTime: 0,
-                    endTime:   0,
-                    duration:  0,
-                });
+            if (!on) {
+                // Manual OFF — also cancel any timer
+                await update(ref(db, "agriculture/waterPump"), { state: false, mode: "manual" });
+                await update(ref(db, "agriculture/waterPump/timer"),
+                    { enabled: false, startTime: 0, endTime: 0, duration: 0 });
                 showToast("Water Pump turned OFF", "info", "Device Control");
-                stopCountdownDisplay();
+                stopCountdown();
             } else {
-                // Manual ON (no timer)
-                await update(ref(db, "agriculture/waterPump"), {
-                    state: true,
-                    mode:  "manual",
-                });
+                await update(ref(db, "agriculture/waterPump"), { state: true, mode: "manual" });
                 showToast("Water Pump turned ON", "success", "Device Control");
             }
         } catch (err) {
-            console.error("Pump toggle error:", err);
-            showToast("Unable to update Water Pump. Check your connection.", "error", "Error");
-            ignorePumpToggleOnce = true;
-            e.target.checked = !newState;
+            console.error(err);
+            showToast("Unable to update Water Pump. Check connection.", "error", "Error");
+            ignorePumpToggle = true;
+            e.target.checked = !on;
         }
     });
 }
 
-/* ============================================================
-   13. TIMER – PRESET BUTTONS
-   ============================================================ */
+function deviceLabel(key) {
+    const map = { pump:"Water Pump", valve1:"Valve 1", valve2:"Valve 2",
+                  valve3:"Valve 3", light:"Light", fan:"Fan" };
+    return map[key] ?? key;
+}
 
+/* ═══════════════════════════════════════════════════════════
+   13. TIMER ACCORDION
+═══════════════════════════════════════════════════════════ */
+function initTimerAccordion() {
+    timerToggleBtn.addEventListener("click", () => {
+        const isOpen = timerToggleBtn.getAttribute("aria-expanded") === "true";
+        timerToggleBtn.setAttribute("aria-expanded", String(!isOpen));
+        timerPanel.setAttribute("aria-hidden", String(isOpen));
+        timerPanel.classList.toggle("collapsed", isOpen);
+    });
+}
+
+/** Auto-open accordion when timer is active so user can see STOP button */
+function openTimerAccordion() {
+    timerToggleBtn.setAttribute("aria-expanded", "true");
+    timerPanel.setAttribute("aria-hidden", "false");
+    timerPanel.classList.remove("collapsed");
+}
+
+/* ═══════════════════════════════════════════════════════════
+   14. PRESET BUTTONS
+═══════════════════════════════════════════════════════════ */
 presetBtns.forEach(btn => {
     btn.addEventListener("click", () => {
-        // Deselect all
         presetBtns.forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
-
-        // Populate custom inputs with preset value
-        const minutes = parseInt(btn.dataset.minutes, 10);
-        timerHoursInput.value   = Math.floor(minutes / 60);
-        timerMinutesInput.value = minutes % 60;
-        timerSecondsInput.value = 0;
+        const mins = parseInt(btn.dataset.minutes, 10);
+        timerHoursInput.value = Math.floor(mins / 60);
+        timerMinsInput.value  = mins % 60;
+        timerSecsInput.value  = 0;
     });
 });
 
-/* ============================================================
-   14. TIMER – START
-   ============================================================ */
-
+/* ═══════════════════════════════════════════════════════════
+   15. TIMER — START
+═══════════════════════════════════════════════════════════ */
 startTimerBtn.addEventListener("click", async () => {
-    const hours   = parseInt(timerHoursInput.value,   10) || 0;
-    const minutes = parseInt(timerMinutesInput.value, 10) || 0;
-    const seconds = parseInt(timerSecondsInput.value, 10) || 0;
-    const totalSec = hours * 3600 + minutes * 60 + seconds;
+    const h   = parseInt(timerHoursInput.value, 10) || 0;
+    const m   = parseInt(timerMinsInput.value,  10) || 0;
+    const s   = parseInt(timerSecsInput.value,  10) || 0;
+    const tot = h * 3600 + m * 60 + s;
 
-    if (totalSec <= 0) {
-        showToast("Please select or enter a valid timer duration.", "warning", "Timer");
+    if (tot <= 0) {
+        showToast("Select or enter a valid duration first.", "warning", "Timer");
         return;
     }
 
-    const now       = Date.now();
-    const endTime   = now + totalSec * 1000;
+    const now    = Date.now();
+    const endTs  = now + tot * 1000;
 
     try {
-        // Write timer data to Firebase atomically
-        await update(ref(db, "agriculture/waterPump"), {
-            state: true,
-            mode:  "timer",
-        });
+        await update(ref(db, "agriculture/waterPump"), { state: true, mode: "timer" });
         await update(ref(db, "agriculture/waterPump/timer"), {
-            enabled:   true,
-            startTime: now,
-            endTime:   endTime,
-            duration:  totalSec,
+            enabled: true, startTime: now, endTime: endTs, duration: tot
         });
-
-        const label = formatDurationLabel(hours, minutes, seconds);
-        showToast(`Timer started for ${label}`, "success", "Pump Timer");
-
-        // Clear preset selection
+        showToast(`Timer started — ${durationLabel(h, m, s)}`, "success", "Pump Timer");
         presetBtns.forEach(b => b.classList.remove("active"));
-
     } catch (err) {
-        console.error("Start timer error:", err);
-        showToast("Unable to start timer. Check your connection.", "error", "Error");
+        console.error(err);
+        showToast("Unable to start timer. Check connection.", "error", "Error");
     }
 });
 
-/** Build a human-readable label like "1 hour 15 min 30 sec" */
-function formatDurationLabel(h, m, s) {
-    const parts = [];
-    if (h) parts.push(`${h} hr`);
-    if (m) parts.push(`${m} min`);
-    if (s) parts.push(`${s} sec`);
-    return parts.join(" ") || "0 sec";
-}
-
-/* ============================================================
-   15. TIMER – STOP
-   ============================================================ */
-
+/* ═══════════════════════════════════════════════════════════
+   16. TIMER — STOP
+═══════════════════════════════════════════════════════════ */
 stopTimerBtn.addEventListener("click", async () => {
     try {
-        await update(ref(db, "agriculture/waterPump"), {
-            state: false,
-            mode:  "manual",
-        });
-        await update(ref(db, "agriculture/waterPump/timer"), {
-            enabled:   false,
-            startTime: 0,
-            endTime:   0,
-            duration:  0,
-        });
-        showToast("Timer stopped. Water Pump OFF.", "info", "Pump Timer");
-        stopCountdownDisplay();
+        await update(ref(db, "agriculture/waterPump"), { state: false, mode: "manual" });
+        await update(ref(db, "agriculture/waterPump/timer"),
+            { enabled: false, startTime: 0, endTime: 0, duration: 0 });
+        showToast("Timer stopped — Pump OFF", "info", "Pump Timer");
+        stopCountdown();
     } catch (err) {
-        console.error("Stop timer error:", err);
-        showToast("Unable to stop timer. Check your connection.", "error", "Error");
+        console.error(err);
+        showToast("Unable to stop timer. Check connection.", "error", "Error");
     }
 });
 
-/* ============================================================
-   16. TIMER – COUNTDOWN DISPLAY (browser side)
-   ============================================================ */
-
-/** Show the active timer UI */
-function showTimerActive() {
-    show(timerActiveDisplay);
-    hide(timerCompletedDisp);
+/* ═══════════════════════════════════════════════════════════
+   17. TIMER — COUNTDOWN DISPLAY
+═══════════════════════════════════════════════════════════ */
+function showPumpTimerActive() {
+    show(pumpTimerMini);
+    show(pumpProgressWrap);
+    openTimerAccordion();
 }
 
-/** Start the visual JS countdown interval */
-function startCountdownDisplay() {
-    // Avoid duplicate intervals
-    stopCountdownDisplay();
+function hidePumpTimerActive() {
+    hide(pumpTimerMini);
+    hide(pumpProgressWrap);
+}
 
+function startCountdown() {
+    stopCountdown();   // prevent duplicates
     timerIntervalId = setInterval(() => {
-        const remaining = timerEndTime - Date.now();
+        const rem = timerEndTime - Date.now();
+        if (rem <= 0) { handleTimerExpired(); return; }
 
-        if (remaining <= 0) {
-            handleTimerExpired();
-            return;
-        }
+        // Update inline display
+        pumpRemainingInline.textContent = formatHMS(rem);
 
-        // Update countdown text
-        timerRemaining.textContent = formatCountdown(remaining);
-
-        // Update progress bar width
-        const elapsed  = timerEndTime - timerDuration * 1000 - Date.now() + timerDuration * 1000;
-        const progress = Math.min(100, ((timerDuration * 1000 - remaining) / (timerDuration * 1000)) * 100);
-        timerProgressBar.style.width = `${100 - progress}%`;
-
+        // Progress bar — shrinks from 100% → 0%
+        const pct = (rem / (timerDuration * 1000)) * 100;
+        pumpProgressBar.style.width = `${Math.max(0, pct)}%`;
     }, 500);
 }
 
-/** Stop JS countdown interval */
-function stopCountdownDisplay() {
-    if (timerIntervalId) {
-        clearInterval(timerIntervalId);
-        timerIntervalId = null;
-    }
-    timerRemaining.textContent = "00:00:00";
-    timerProgressBar.style.width = "100%";
+function stopCountdown() {
+    if (timerIntervalId) { clearInterval(timerIntervalId); timerIntervalId = null; }
+    pumpRemainingInline.textContent  = "00:00:00";
+    pumpProgressBar.style.width = "100%";
 }
 
-/**
- * Called when the countdown reaches 0 in the browser.
- * The ESP32 is the authoritative source for turning the pump OFF;
- * this just updates the display.
- */
 function handleTimerExpired() {
-    stopCountdownDisplay();
-    hide(timerActiveDisplay);
-    showTimerCompleted();
-    showToast("Water Pump timer completed – Pump OFF", "success", "Timer Complete", 5000);
+    stopCountdown();
+    hidePumpTimerActive();
+    showTimerDone();
+    showToast("Water Pump timer complete — Pump OFF", "success", "Timer Complete", 5000);
 }
 
-function showTimerCompleted() {
-    show(timerCompletedDisp);
-    // Auto-hide after 8 seconds
-    setTimeout(() => hide(timerCompletedDisp), 8000);
+function showTimerDone() {
+    show(timerCompletedDiv);
+    setTimeout(() => hide(timerCompletedDiv), 8000);
 }
 
-/* ============================================================
-   17. LOGIN
-   ============================================================ */
-
-loginForm.addEventListener("submit", async (e) => {
+/* ═══════════════════════════════════════════════════════════
+   18. LOGIN
+═══════════════════════════════════════════════════════════ */
+loginForm.addEventListener("submit", async e => {
     e.preventDefault();
     hide(loginError);
 
     const email    = loginEmail.value.trim();
-    const password = loginPassword.value;
+    const password = loginPwd.value;
+    if (!email || !password) { showError("Please enter both email and password."); return; }
 
-    if (!email || !password) {
-        showLoginError("Please enter both email and password.");
-        return;
-    }
-
-    // Show spinner
     loginBtn.disabled = true;
     loginBtn.querySelector(".btn-text").classList.add("hidden");
-    loginBtn.querySelector(".btn-spinner").classList.remove("hidden");
+    loginBtn.querySelector(".btn-spin").classList.remove("hidden");
 
     try {
         await signInWithEmailAndPassword(auth, email, password);
-        // onAuthStateChanged will handle the UI transition
     } catch (err) {
-        console.error("Login error:", err.code, err.message);
-        showLoginError(friendlyAuthError(err.code));
+        showError(friendlyError(err.code));
     } finally {
         loginBtn.disabled = false;
         loginBtn.querySelector(".btn-text").classList.remove("hidden");
-        loginBtn.querySelector(".btn-spinner").classList.add("hidden");
+        loginBtn.querySelector(".btn-spin").classList.add("hidden");
     }
 });
 
-function showLoginError(msg) {
-    loginError.textContent = msg;
-    show(loginError);
-}
+function showError(msg) { loginError.textContent = msg; show(loginError); }
 
-/** Convert Firebase auth error codes to user-friendly messages */
-function friendlyAuthError(code) {
-    const map = {
+function friendlyError(code) {
+    return {
         "auth/invalid-email":          "The email address is not valid.",
         "auth/user-disabled":          "This account has been disabled.",
         "auth/user-not-found":         "No account found with this email.",
-        "auth/wrong-password":         "Incorrect password. Please try again.",
-        "auth/invalid-credential":     "Invalid credentials. Please check your email and password.",
-        "auth/too-many-requests":      "Too many failed attempts. Please wait and try again.",
-        "auth/network-request-failed": "Network error. Please check your internet connection.",
-    };
-    return map[code] ?? `Authentication error (${code}). Please try again.`;
+        "auth/wrong-password":         "Incorrect password.",
+        "auth/invalid-credential":     "Invalid credentials. Check email and password.",
+        "auth/too-many-requests":      "Too many attempts. Please wait and try again.",
+        "auth/network-request-failed": "Network error. Check your connection.",
+    }[code] ?? `Auth error (${code}). Please try again.`;
 }
 
-/* ── Password visibility toggle ── */
+// Password eye toggle
 togglePwdBtn.addEventListener("click", () => {
-    const isText = loginPassword.type === "text";
-    loginPassword.type        = isText ? "password" : "text";
-    togglePwdBtn.textContent  = isText ? "👁" : "🙈";
+    const show = loginPwd.type === "password";
+    loginPwd.type            = show ? "text" : "password";
+    togglePwdBtn.textContent = show ? "🙈" : "👁";
 });
 
-/* ============================================================
-   18. LOGOUT
-   ============================================================ */
-
+/* ═══════════════════════════════════════════════════════════
+   19. LOGOUT
+═══════════════════════════════════════════════════════════ */
 logoutBtn.addEventListener("click", async () => {
     try {
         await signOut(auth);
-        showToast("Logged out successfully.", "info", "Auth");
-    } catch (err) {
-        console.error("Logout error:", err);
-    }
+        showToast("Logged out.", "info", "Auth");
+    } catch (err) { console.error(err); }
 });
 
-/* ============================================================
-   19. AUTH STATE OBSERVER
-   ============================================================ */
-
-onAuthStateChanged(auth, (user) => {
+/* ═══════════════════════════════════════════════════════════
+   20. AUTH STATE OBSERVER
+═══════════════════════════════════════════════════════════ */
+onAuthStateChanged(auth, user => {
     if (user) {
-        // User is signed in
         showDashboard(user);
         initDashboard();
     } else {
-        // User is signed out — clean up listeners handled by Firebase SDK
-        stopCountdownDisplay();
-        showLoginScreen();
+        stopCountdown();
+        dashboardInitialized = false;
+        showLogin();
     }
 });
 
-/* ============================================================
-   20. DASHBOARD INITIALIZATION
-   ============================================================ */
-
-let dashboardInitialized = false;
-
+/* ═══════════════════════════════════════════════════════════
+   21. DASHBOARD INIT
+═══════════════════════════════════════════════════════════ */
 function initDashboard() {
     if (dashboardInitialized) return;
     dashboardInitialized = true;
 
-    // Bind device toggle handlers
+    // Toggle handlers
     bindPumpToggle();
     bindSimpleToggle("valve1", "valve1");
     bindSimpleToggle("valve2", "valve2");
@@ -772,63 +635,47 @@ function initDashboard() {
     bindSimpleToggle("light",  "light");
     bindSimpleToggle("fan",    "fan");
 
-    // Start Firebase listeners
+    // Timer accordion
+    initTimerAccordion();
+
+    // Firebase listeners
     watchFirebaseConnection();
     watchEsp32Status();
     startDeviceListeners();
 
-    // Ensure initial database structure exists (only if nodes are missing)
+    // Seed DB structure if first run
     ensureDbStructure();
 }
 
-/* ============================================================
-   21. ENSURE FIREBASE DATABASE STRUCTURE
-   ============================================================ */
-
-/**
- * Write default values only if the node does not yet exist.
- * Uses a one-time read so we don't overwrite existing states.
- */
+/* ═══════════════════════════════════════════════════════════
+   22. SEED DATABASE STRUCTURE (first-run only)
+═══════════════════════════════════════════════════════════ */
 async function ensureDbStructure() {
-    const { get } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
+    try {
+        const snap = await get(ref(db, "agriculture"));
+        if (snap && snap.exists()) return;   // already set up
 
-    const agriRef = ref(db, "agriculture");
-    const snap    = await get(agriRef).catch(() => null);
-
-    if (snap && snap.exists()) return; // Already set up
-
-    const defaultData = {
-        agriculture: {
-            waterPump: {
-                state: false,
-                mode:  "manual",
-                timer: { enabled: false, startTime: 0, endTime: 0, duration: 0 },
+        await set(ref(db, "/"), {
+            agriculture: {
+                waterPump: { state: false, mode: "manual",
+                    timer: { enabled: false, startTime: 0, endTime: 0, duration: 0 } },
+                valve1: { state: false },
+                valve2: { state: false },
+                valve3: { state: false },
+                light:  { state: false },
+                fan:    { state: false },
             },
-            valve1: { state: false },
-            valve2: { state: false },
-            valve3: { state: false },
-            light:  { state: false },
-            fan:    { state: false },
-        },
-        system: {
-            esp32Online: false,
-            lastSeen:    0,
-        },
-    };
-
-    await set(ref(db, "/"), defaultData).catch(err =>
-        console.warn("Could not write default structure:", err)
-    );
+            system: { esp32Online: false, lastSeen: 0 },
+        });
+    } catch (err) { console.warn("DB seed skipped:", err.message); }
 }
 
-/* ============================================================
-   22. PREVENT PAGE UNLOAD DURING ACTIVE TIMER (UX hint)
-   ============================================================ */
-
-window.addEventListener("beforeunload", (e) => {
+/* ═══════════════════════════════════════════════════════════
+   23. UNLOAD GUARD (active timer warning)
+═══════════════════════════════════════════════════════════ */
+window.addEventListener("beforeunload", e => {
     if (timerIntervalId) {
         e.preventDefault();
-        // Modern browsers ignore custom messages, but the dialog still shows.
-        e.returnValue = "A pump timer is still running. The ESP32 will continue the timer, but are you sure you want to leave?";
+        e.returnValue = "A pump timer is running. The ESP32 will continue automatically.";
     }
 });

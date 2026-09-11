@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Agriculture - ESP32 Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div id="app">
+        <!-- Loader -->
+        <div id="loader" class="screen flex-center">
+            <div class="spinner"></div>
+            <p>Initializing System...</p>
+        </div>
+
+        <!-- Login Screen -->
+        <div id="login-screen" class="screen flex-center hidden">
+            <div class="glass-card login-card">
+                <h2>SmartAgri Access</h2>
+                <p class="subtitle">Authenticate to control your ESP32</p>
+                <form id="login-form">
+                    <div class="input-group">
+                        <label for="email">Email Address</label>
+                        <input type="email" id="email" required placeholder="name@example.com">
+                    </div>
+                    <div class="input-group">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" required placeholder="••••••••">
+                    </div>
+                    <div id="login-error" class="error-msg hidden">Invalid credentials.</div>
+                    <button type="submit" class="btn primary-btn" id="login-btn">
+                        <span class="btn-text">Connect</span>
+                        <div class="btn-spinner hidden"></div>
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Dashboard Screen -->
+        <div id="dashboard-screen" class="screen hidden">
+            <header class="glass-header">
+                <div class="brand">
+                    <h1>SmartAgri</h1>
+                    <span id="connection-status" class="status-badge connecting">Connecting...</span>
+                </div>
+                <div class="user-controls">
+                    <span id="user-email" class="email-display">user@example.com</span>
+                    <button id="logout-btn" class="btn secondary-btn">Logout</button>
+                </div>
+            </header>
+
+            <main class="dashboard-content">
+                <div class="glass-card control-card">
+                    <div class="card-header">
+                        <h2>ESP32 Built-in LED</h2>
+                        <div id="led-indicator" class="led-indicator off"></div>
+                    </div>
+
+                    <div class="status-display">
+                        <p class="status-label">Current State:</p>
+                        <h3 id="led-state-text" class="state-text off-text">LED OFF</h3>
+                    </div>
+
+                    <div class="control-buttons">
+                        <button id="btn-on" class="btn control-btn btn-green">TURN ON</button>
+                        <button id="btn-off" class="btn control-btn btn-red active">TURN OFF</button>
+                    </div>
+
+                    <div class="meta-info">
+                        <p>Raw DB State: <code id="raw-db-state">false</code></p>
+                        <p>Last Update: <span id="last-update-time">--:--:--</span></p>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Firebase SDK is loaded as ES modules in app.js -->
+    <script type="module" src="app.js"></script>
+</body>
+
+</html>

@@ -3,406 +3,453 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="description" content="SmartAgri – Professional ESP32 Agriculture IoT Automation Dashboard." />
-    <meta name="theme-color" content="#16a34a" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <title>SmartAgri – Agriculture Automation</title>
+    <meta name="description" content="SmartAgri – Professional ESP32 Agriculture Automation Dashboard" />
+    <title>SmartAgri – Farm Automation Control</title>
 
-    <!-- Google Fonts -->
+    <!-- Google Fonts: Inter & JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
 
     <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-<!-- ═══════════════════ LOADING SCREEN ═══════════════════ -->
-<div id="loading-screen" class="loading-screen">
-    <div class="loading-content">
-        <div class="loading-logo-wrap">
-            <div class="loading-leaf">🌱</div>
-            <h1 class="loading-brand">SmartAgri</h1>
+    <!-- ==================== LOADING SCREEN ==================== -->
+    <div id="loading-screen" class="loading-screen" aria-label="Loading SmartAgri">
+        <div class="loading-content">
+            <div class="loading-logo-wrap">
+                <span class="loading-leaf" aria-hidden="true">🌱</span>
+                <span class="loading-brand">SmartAgri</span>
+            </div>
+            <div class="loading-bar-wrap" role="progressbar" aria-label="Connecting">
+                <div class="loading-bar"></div>
+            </div>
+            <p class="loading-hint">Initializing cloud gateway…</p>
         </div>
-        <div class="loading-bar-wrap">
-            <div class="loading-bar"></div>
-        </div>
-        <p class="loading-hint">Connecting to Firebase…</p>
-    </div>
-</div>
-
-<!-- ═══════════════════ TOAST CONTAINER (top-right) ═══════════════════ -->
-<div id="toast-container" class="toast-container" role="alert" aria-live="polite"></div>
-
-<!-- ═══════════════════ LOGIN SCREEN ═══════════════════ -->
-<div id="login-screen" class="login-screen hidden">
-    <div class="login-bg" aria-hidden="true">
-        <div class="login-bg-circle c1"></div>
-        <div class="login-bg-circle c2"></div>
-        <div class="login-bg-circle c3"></div>
     </div>
 
-    <div class="login-card">
-        <div class="login-brand-block">
-            <div class="login-leaf-icon">🌱</div>
-            <h1 class="login-title">SmartAgri</h1>
-            <p class="login-subtitle">Smart Agriculture Automation</p>
+    <!-- ==================== LOGIN SCREEN ==================== -->
+    <div id="login-screen" class="login-screen hidden">
+        <div class="login-bg">
+            <div class="login-bg-circle c1"></div>
+            <div class="login-bg-circle c2"></div>
         </div>
 
-        <form id="login-form" class="login-form" novalidate>
-            <div class="field-group">
-                <label for="login-email" class="field-label">Email</label>
-                <div class="field-wrap">
-                    <span class="field-prefix" aria-hidden="true">✉</span>
-                    <input type="email" id="login-email" class="field-input"
-                           placeholder="you@example.com" autocomplete="email" required />
+        <div class="login-card">
+            <div class="login-header">
+                <div class="login-badge">
+                    <span class="login-leaf">🌱</span>
                 </div>
+                <h1 class="login-title">SmartAgri</h1>
+                <p class="login-subtitle">Agriculture IoT Automation System</p>
             </div>
 
-            <div class="field-group">
-                <label for="login-password" class="field-label">Password</label>
-                <div class="field-wrap">
-                    <span class="field-prefix" aria-hidden="true">🔒</span>
-                    <input type="password" id="login-password" class="field-input"
-                           placeholder="••••••••" autocomplete="current-password" required />
-                    <button type="button" id="toggle-password" class="eye-btn" aria-label="Toggle password">👁</button>
+            <form id="login-form" class="login-form" novalidate>
+                <div class="form-group">
+                    <label for="login-email" class="form-label">Email Address</label>
+                    <div class="input-wrap">
+                        <span class="input-icon" aria-hidden="true">✉</span>
+                        <input
+                            type="email"
+                            id="login-email"
+                            class="form-input"
+                            placeholder="farmer@smartagri.com"
+                            autocomplete="email"
+                            required
+                        />
+                    </div>
                 </div>
-            </div>
 
-            <div id="login-error" class="login-error hidden" role="alert"></div>
-
-            <button type="submit" id="login-btn" class="btn btn-login">
-                <span class="btn-text">LOGIN TO SMARTAGRI</span>
-                <span class="btn-spin hidden" aria-hidden="true"></span>
-            </button>
-        </form>
-
-        <p class="login-foot">Secured by Firebase Authentication</p>
-    </div>
-</div>
-
-<!-- ═══════════════════ DASHBOARD ═══════════════════ -->
-<div id="dashboard" class="dashboard hidden">
-
-    <!-- HEADER -->
-    <header class="site-header">
-        <div class="hdr-inner">
-            <div class="hdr-brand">
-                <span class="hdr-leaf">🌱</span>
-                <div class="hdr-text">
-                    <span class="hdr-name">SmartAgri</span>
-                    <span class="hdr-sub">Agriculture IoT</span>
+                <div class="form-group">
+                    <label for="login-password" class="form-label">Password</label>
+                    <div class="input-wrap">
+                        <span class="input-icon" aria-hidden="true">🔒</span>
+                        <input
+                            type="password"
+                            id="login-password"
+                            class="form-input"
+                            placeholder="••••••••"
+                            autocomplete="current-password"
+                            required
+                        />
+                        <button type="button" id="toggle-password" class="btn-pwd" aria-label="Show password">👁</button>
+                    </div>
                 </div>
-            </div>
 
-            <div class="hdr-center">
-                <div id="header-firebase-badge" class="conn-badge conn-connecting">
-                    <span class="conn-dot"></span>
-                    <span class="conn-label">Connecting</span>
-                </div>
-            </div>
+                <div id="login-error" class="login-error hidden" role="alert"></div>
 
-            <div class="hdr-right">
-                <div id="header-time" class="hdr-clock"></div>
-                <div class="hdr-user-pill">
-                    <span class="hdr-avatar">👤</span>
-                    <span id="header-email" class="hdr-email"></span>
-                </div>
-                <button id="logout-btn" class="btn-ghost" aria-label="Logout">
-                    <span>↩</span><span class="logout-label">Logout</span>
+                <button type="submit" id="login-btn" class="btn btn-login">
+                    <span class="btn-text">LOGIN TO SMARTAGRI</span>
+                    <span class="btn-spin hidden" aria-hidden="true"></span>
                 </button>
-            </div>
+            </form>
+
+            <p class="login-foot">Secured by Firebase Authentication</p>
         </div>
-    </header>
+    </div>
 
-    <!-- MAIN -->
-    <main class="main-content">
+    <!-- ==================== DASHBOARD ==================== -->
+    <div id="dashboard" class="dashboard hidden">
 
-        <!-- STATUS STRIP -->
-        <section class="status-strip">
-            <div class="ss-item">
-                <span class="ss-label">Firebase</span>
-                <div id="sb-firebase" class="ss-pill pill-connecting">
-                    <span class="ss-dot"></span><span>Connecting…</span>
+        <!-- HEADER -->
+        <header class="site-header">
+            <div class="hdr-inner">
+                <div class="hdr-brand">
+                    <span class="hdr-leaf">🌱</span>
+                    <div class="hdr-text">
+                        <span class="hdr-name">SmartAgri</span>
+                        <span class="hdr-sub">ESP32 Automation</span>
+                    </div>
                 </div>
-            </div>
-            <div class="ss-item">
-                <span class="ss-label">ESP32</span>
-                <div id="sb-esp32" class="ss-pill pill-unknown">
-                    <span class="ss-dot"></span><span>Unknown</span>
+
+                <!-- SYSTEM STATUS IN TOP BAR (Online / Offline) -->
+                <div class="hdr-center">
+                    <div id="header-system-status" class="system-status-pill status-offline" title="System operational state">
+                        <span class="status-pulse-dot"></span>
+                        <span id="system-status-text" class="status-text">SYSTEM OFFLINE</span>
+                    </div>
                 </div>
-            </div>
-            <div class="ss-item">
-                <span class="ss-label">Active</span>
-                <div class="ss-pill pill-info">
-                    <span id="sb-active-count">0</span><span>/6</span>
-                </div>
-            </div>
-            <div class="ss-item ss-item-last">
-                <span class="ss-label">Last Seen</span>
-                <span id="sb-last-seen" class="ss-val">—</span>
-            </div>
-        </section>
 
-        <!-- ERROR BANNER -->
-        <div id="firebase-error-banner" class="err-banner hidden" role="alert">
-            ⚠ Firebase connection error — controls disabled
-        </div>
-
-        <!-- PAGE HEADING -->
-        <div class="pg-head">
-            <h2 class="pg-title">Device Control Panel</h2>
-            <p class="pg-sub">Real-time farm automation</p>
-        </div>
-
-        <!-- DEVICE CARDS GRID -->
-        <div class="cards-grid" id="cards-grid">
-
-            <!-- ═══ WATER PUMP CARD ═══ -->
-            <article class="device-card pump-card" id="card-pump">
-                <!-- Top accent bar (colored by CSS) -->
-                <div class="card-accent"></div>
-
-                <div class="card-body">
-                    <!-- Row 1: icon + title + status -->
-                    <div class="card-top">
-                        <div class="card-icon pump-icon">💧</div>
-                        <div class="card-info">
-                            <h3 class="card-name">Water Pump</h3>
-                            <span class="card-gpio">GPIO 16</span>
-                        </div>
-                        <div class="card-state-wrap">
-                            <span id="pump-status-dot" class="state-dot dot-off"></span>
-                            <span id="pump-status-label" class="state-label lbl-off">OFF</span>
-                        </div>
+                <div class="hdr-right">
+                    <div id="header-time" class="hdr-clock"></div>
+                    <div class="hdr-user-pill">
+                        <span class="hdr-avatar">👤</span>
+                        <span id="header-email" class="hdr-email"></span>
                     </div>
-
-                    <!-- Row 2: toggle -->
-                    <div class="card-row toggle-row">
-                        <span class="row-label">Power</span>
-                        <label class="tgl-switch">
-                            <input type="checkbox" id="pump-toggle" class="tgl-input" />
-                            <span class="tgl-track"><span class="tgl-thumb"></span></span>
-                        </label>
-                    </div>
-
-                    <!-- Mode badge -->
-                    <div class="mode-row">
-                        <span class="mode-lbl">Mode</span>
-                        <span id="pump-mode-badge" class="mode-chip chip-manual">Manual</span>
-                    </div>
-
-                    <!-- ── INLINE TIMER REMAINING (shown when timer active) ── -->
-                    <div id="pump-timer-mini" class="timer-mini hidden">
-                        <div class="tmini-left">
-                            <span class="tmini-pulse">●</span>
-                            <span class="tmini-title">Timer Active</span>
-                        </div>
-                        <div class="tmini-right">
-                            <span id="pump-remaining-inline" class="tmini-digits">00:00:00</span>
-                        </div>
-                    </div>
-
-                    <!-- ── TIMER PROGRESS BAR (shown when timer active) ── -->
-                    <div id="pump-progress-wrap" class="tprog-wrap hidden">
-                        <div id="pump-progress-bar" class="tprog-bar"></div>
-                    </div>
-
-                    <div class="card-divider"></div>
-
-                    <!-- ── TIMER ACCORDION TOGGLE BUTTON ── -->
-                    <button id="timer-toggle-btn" class="timer-acc-btn" aria-expanded="false" aria-controls="timer-panel">
-                        <span class="acc-icon">⏱</span>
-                        <span class="acc-label">Set Timer</span>
-                        <span class="acc-chevron" aria-hidden="true">›</span>
+                    <button id="logout-btn" class="btn-ghost" aria-label="Logout">
+                        <span>↩</span><span class="logout-label">Logout</span>
                     </button>
+                </div>
+            </div>
+        </header>
 
-                    <!-- ── TIMER PANEL (collapsed by default) ── -->
-                    <div id="timer-panel" class="timer-panel collapsed" aria-hidden="true">
-                        <!-- Presets -->
-                        <div class="presets-grid" role="group" aria-label="Duration presets">
-                            <button class="preset-btn" data-minutes="1">1 min</button>
-                            <button class="preset-btn" data-minutes="5">5 min</button>
-                            <button class="preset-btn" data-minutes="10">10 min</button>
-                            <button class="preset-btn" data-minutes="15">15 min</button>
-                            <button class="preset-btn" data-minutes="30">30 min</button>
-                            <button class="preset-btn" data-minutes="60">1 hr</button>
+        <!-- MAIN -->
+        <main class="main-content">
+
+            <!-- STATUS STRIP -->
+            <section class="status-strip">
+                <div class="ss-item">
+                    <span class="ss-label">Firebase</span>
+                    <div id="sb-firebase" class="ss-pill pill-connecting">
+                        <span class="ss-dot"></span><span>Connecting…</span>
+                    </div>
+                </div>
+                <div class="ss-item">
+                    <span class="ss-label">ESP32</span>
+                    <div id="sb-esp32" class="ss-pill pill-unknown">
+                        <span class="ss-dot"></span><span>Waiting…</span>
+                    </div>
+                </div>
+                <div class="ss-item">
+                    <span class="ss-label">Active</span>
+                    <div class="ss-pill pill-info">
+                        <span id="sb-active-count">0</span><span>/6</span>
+                    </div>
+                </div>
+                <div class="ss-item ss-item-last">
+                    <span class="ss-label">ESP32 Last Seen</span>
+                    <span id="sb-last-seen" class="ss-val">—</span>
+                </div>
+            </section>
+
+            <!-- SYSTEM LOCK BANNER (Shown when ESP32 or Firebase is offline) -->
+            <div id="system-lock-banner" class="system-lock-banner">
+                <span class="lock-icon">🔒</span>
+                <span id="lock-banner-msg">Controls locked: Both ESP32 device & Firebase must be connected to toggle switches.</span>
+            </div>
+
+            <!-- PAGE HEADING -->
+            <div class="pg-head">
+                <h2 class="pg-title">Device Control Panel</h2>
+                <p class="pg-sub">Direct hardware relays mapped to ESP32 GPIO pins</p>
+            </div>
+
+            <!-- DEVICE CARDS GRID -->
+            <div class="cards-grid controls-locked" id="cards-grid">
+
+                <!-- ═══ 1. WATER PUMP CARD ═══ -->
+                <article class="device-card pump-card" id="card-pump">
+                    <div class="card-accent"></div>
+                    <div class="card-body">
+                        <!-- Media container with attached water pump image -->
+                        <div class="card-media pump-media">
+                            <img src="assets/water-pump.png" alt="Water Pump" class="card-hardware-img" />
+                            <span class="card-gpio-pill">GPIO 16</span>
                         </div>
 
-                        <!-- Custom H:M:S -->
-                        <div class="custom-dur">
-                            <span class="custom-lbl">Custom</span>
-                            <div class="dur-inputs">
-                                <div class="dur-field">
-                                    <input type="number" id="timer-hours"   class="dur-input" min="0" max="23" value="0" aria-label="Hours" />
-                                    <span class="dur-unit">h</span>
+                        <!-- Card info row -->
+                        <div class="card-top">
+                            <div class="card-info">
+                                <h3 class="card-name">Water Pump</h3>
+                                <div class="mode-row">
+                                    <span class="mode-lbl">Mode:</span>
+                                    <span id="pump-mode-badge" class="mode-chip chip-manual">Manual</span>
                                 </div>
-                                <span class="dur-sep">:</span>
-                                <div class="dur-field">
-                                    <input type="number" id="timer-minutes" class="dur-input" min="0" max="59" value="0" aria-label="Minutes" />
-                                    <span class="dur-unit">m</span>
-                                </div>
-                                <span class="dur-sep">:</span>
-                                <div class="dur-field">
-                                    <input type="number" id="timer-seconds" class="dur-input" min="0" max="59" value="0" aria-label="Seconds" />
-                                    <span class="dur-unit">s</span>
-                                </div>
+                            </div>
+                            <div class="card-state-wrap">
+                                <span id="pump-status-dot" class="state-dot dot-off"></span>
+                                <span id="pump-status-label" class="state-label lbl-off">OFF</span>
                             </div>
                         </div>
 
-                        <!-- Action buttons -->
-                        <div class="timer-actions">
-                            <button id="start-timer-btn" class="btn btn-start-timer">▶ Start Timer</button>
-                            <button id="stop-timer-btn"  class="btn btn-stop-timer">■ Stop</button>
-                        </div>
-                    </div>
+                        <!-- Minimal inline card notification -->
+                        <div id="notice-pump" class="card-inline-notice hidden" role="status" aria-live="polite"></div>
 
-                    <!-- Timer completed -->
-                    <div id="timer-completed-display" class="timer-done hidden">
-                        <span>✓</span><span>Timer Completed — Pump OFF</span>
-                    </div>
-                </div>
-            </article>
+                        <!-- Power toggle row -->
+                        <div class="card-row toggle-row" id="wrap-toggle-pump">
+                            <span class="row-label">Power Relay</span>
+                            <label class="tgl-switch" title="Toggle requires ESP32 & Firebase connected">
+                                <input type="checkbox" id="pump-toggle" class="tgl-input" disabled />
+                                <span class="tgl-track"><span class="tgl-thumb"></span></span>
+                            </label>
+                        </div>
 
-            <!-- ═══ VALVE 1 ═══ -->
-            <article class="device-card" id="card-valve1">
-                <div class="card-accent"></div>
-                <div class="card-body">
-                    <div class="card-top">
-                        <div class="card-icon valve-icon">💦</div>
-                        <div class="card-info">
-                            <h3 class="card-name">Solenoid Valve 1</h3>
-                            <span class="card-gpio">GPIO 17</span>
+                        <!-- INLINE TIMER REMAINING (visible when active) -->
+                        <div id="pump-timer-mini" class="timer-mini hidden">
+                            <div class="tmini-left">
+                                <span class="tmini-pulse">●</span>
+                                <span class="tmini-title">Timer Running</span>
+                            </div>
+                            <div class="tmini-right">
+                                <span id="pump-remaining-inline" class="tmini-digits">00:00:00</span>
+                            </div>
                         </div>
-                        <div class="card-state-wrap">
-                            <span id="valve1-status-dot" class="state-dot dot-off"></span>
-                            <span id="valve1-status-label" class="state-label lbl-off">OFF</span>
-                        </div>
-                    </div>
-                    <div class="card-row toggle-row">
-                        <span class="row-label">Power</span>
-                        <label class="tgl-switch">
-                            <input type="checkbox" id="valve1-toggle" class="tgl-input" />
-                            <span class="tgl-track"><span class="tgl-thumb"></span></span>
-                        </label>
-                    </div>
-                    <p class="card-desc">Irrigation zone 1</p>
-                </div>
-            </article>
 
-            <!-- ═══ VALVE 2 ═══ -->
-            <article class="device-card" id="card-valve2">
-                <div class="card-accent"></div>
-                <div class="card-body">
-                    <div class="card-top">
-                        <div class="card-icon valve-icon">💦</div>
-                        <div class="card-info">
-                            <h3 class="card-name">Solenoid Valve 2</h3>
-                            <span class="card-gpio">GPIO 18</span>
+                        <!-- TIMER PROGRESS BAR -->
+                        <div id="pump-progress-wrap" class="tprog-wrap hidden">
+                            <div id="pump-progress-bar" class="tprog-bar"></div>
                         </div>
-                        <div class="card-state-wrap">
-                            <span id="valve2-status-dot" class="state-dot dot-off"></span>
-                            <span id="valve2-status-label" class="state-label lbl-off">OFF</span>
-                        </div>
-                    </div>
-                    <div class="card-row toggle-row">
-                        <span class="row-label">Power</span>
-                        <label class="tgl-switch">
-                            <input type="checkbox" id="valve2-toggle" class="tgl-input" />
-                            <span class="tgl-track"><span class="tgl-thumb"></span></span>
-                        </label>
-                    </div>
-                    <p class="card-desc">Irrigation zone 2</p>
-                </div>
-            </article>
 
-            <!-- ═══ VALVE 3 ═══ -->
-            <article class="device-card" id="card-valve3">
-                <div class="card-accent"></div>
-                <div class="card-body">
-                    <div class="card-top">
-                        <div class="card-icon valve-icon">💦</div>
-                        <div class="card-info">
-                            <h3 class="card-name">Solenoid Valve 3</h3>
-                            <span class="card-gpio">GPIO 19</span>
-                        </div>
-                        <div class="card-state-wrap">
-                            <span id="valve3-status-dot" class="state-dot dot-off"></span>
-                            <span id="valve3-status-label" class="state-label lbl-off">OFF</span>
-                        </div>
-                    </div>
-                    <div class="card-row toggle-row">
-                        <span class="row-label">Power</span>
-                        <label class="tgl-switch">
-                            <input type="checkbox" id="valve3-toggle" class="tgl-input" />
-                            <span class="tgl-track"><span class="tgl-thumb"></span></span>
-                        </label>
-                    </div>
-                    <p class="card-desc">Irrigation zone 3</p>
-                </div>
-            </article>
+                        <div class="card-divider"></div>
 
-            <!-- ═══ LIGHT ═══ -->
-            <article class="device-card" id="card-light">
-                <div class="card-accent"></div>
-                <div class="card-body">
-                    <div class="card-top">
-                        <div class="card-icon light-icon">💡</div>
-                        <div class="card-info">
-                            <h3 class="card-name">Agriculture Light</h3>
-                            <span class="card-gpio">GPIO 25</span>
+                        <!-- TIMER ACCORDION TOGGLE BUTTON -->
+                        <button id="timer-toggle-btn" class="timer-acc-btn" aria-expanded="false" aria-controls="timer-panel">
+                            <span class="acc-icon">⏱</span>
+                            <span class="acc-label">Timer Settings</span>
+                            <span class="acc-chevron" aria-hidden="true">›</span>
+                        </button>
+
+                        <!-- TIMER PANEL (collapsed by default) -->
+                        <div id="timer-panel" class="timer-panel collapsed" aria-hidden="true">
+                            <!-- Presets -->
+                            <div class="presets-grid" role="group" aria-label="Duration presets">
+                                <button class="preset-btn" data-minutes="1">1 min</button>
+                                <button class="preset-btn" data-minutes="5">5 min</button>
+                                <button class="preset-btn" data-minutes="10">10 min</button>
+                                <button class="preset-btn" data-minutes="15">15 min</button>
+                                <button class="preset-btn" data-minutes="30">30 min</button>
+                                <button class="preset-btn" data-minutes="60">1 hr</button>
+                            </div>
+
+                            <!-- Custom H:M:S -->
+                            <div class="custom-dur">
+                                <span class="custom-lbl">Custom Duration</span>
+                                <div class="dur-inputs">
+                                    <div class="dur-field">
+                                        <input type="number" id="timer-hours" class="dur-input" min="0" max="23" value="0" aria-label="Hours" />
+                                        <span class="dur-unit">h</span>
+                                    </div>
+                                    <span class="dur-sep">:</span>
+                                    <div class="dur-field">
+                                        <input type="number" id="timer-minutes" class="dur-input" min="0" max="59" value="0" aria-label="Minutes" />
+                                        <span class="dur-unit">m</span>
+                                    </div>
+                                    <span class="dur-sep">:</span>
+                                    <div class="dur-field">
+                                        <input type="number" id="timer-seconds" class="dur-input" min="0" max="59" value="0" aria-label="Seconds" />
+                                        <span class="dur-unit">s</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Action buttons -->
+                            <div class="timer-actions">
+                                <button id="start-timer-btn" class="btn btn-start-timer" disabled>▶ Start Timer</button>
+                                <button id="stop-timer-btn" class="btn btn-stop-timer" disabled>■ Stop</button>
+                            </div>
                         </div>
-                        <div class="card-state-wrap">
-                            <span id="light-status-dot" class="state-dot dot-off"></span>
-                            <span id="light-status-label" class="state-label lbl-off">OFF</span>
+
+                        <!-- Timer completed banner -->
+                        <div id="timer-completed-display" class="timer-done hidden">
+                            <span>✓</span><span>Timer Completed — Pump OFF</span>
                         </div>
                     </div>
-                    <div class="card-row toggle-row">
-                        <span class="row-label">Power</span>
-                        <label class="tgl-switch">
-                            <input type="checkbox" id="light-toggle" class="tgl-input" />
-                            <span class="tgl-track"><span class="tgl-thumb"></span></span>
-                        </label>
-                    </div>
-                    <p class="card-desc">Greenhouse grow lights</p>
-                </div>
-            </article>
+                </article>
 
-            <!-- ═══ FAN ═══ -->
-            <article class="device-card" id="card-fan">
-                <div class="card-accent"></div>
-                <div class="card-body">
-                    <div class="card-top">
-                        <div class="card-icon fan-icon">🌀</div>
-                        <div class="card-info">
-                            <h3 class="card-name">Exhaust / Farm Fan</h3>
-                            <span class="card-gpio">GPIO 26</span>
+                <!-- ═══ 2. SOLENOID VALVE 1 ═══ -->
+                <article class="device-card valve-card" id="card-valve1">
+                    <div class="card-accent"></div>
+                    <div class="card-body">
+                        <div class="card-media valve-media">
+                            <img src="assets/solenoid-valve.jpg" alt="Solenoid Valve 1" class="card-hardware-img" />
+                            <span class="card-gpio-pill">GPIO 17</span>
                         </div>
-                        <div class="card-state-wrap">
-                            <span id="fan-status-dot" class="state-dot dot-off"></span>
-                            <span id="fan-status-label" class="state-label lbl-off">OFF</span>
+
+                        <div class="card-top">
+                            <div class="card-info">
+                                <h3 class="card-name">Solenoid Valve 1</h3>
+                                <span class="card-desc">Irrigation Zone 1</span>
+                            </div>
+                            <div class="card-state-wrap">
+                                <span id="valve1-status-dot" class="state-dot dot-off"></span>
+                                <span id="valve1-status-label" class="state-label lbl-off">OFF</span>
+                            </div>
+                        </div>
+
+                        <!-- Minimal inline notice -->
+                        <div id="notice-valve1" class="card-inline-notice hidden" role="status" aria-live="polite"></div>
+
+                        <div class="card-row toggle-row" id="wrap-toggle-valve1">
+                            <span class="row-label">Power Relay</span>
+                            <label class="tgl-switch" title="Toggle requires ESP32 & Firebase connected">
+                                <input type="checkbox" id="valve1-toggle" class="tgl-input" disabled />
+                                <span class="tgl-track"><span class="tgl-thumb"></span></span>
+                            </label>
                         </div>
                     </div>
-                    <div class="card-row toggle-row">
-                        <span class="row-label">Power</span>
-                        <label class="tgl-switch">
-                            <input type="checkbox" id="fan-toggle" class="tgl-input" />
-                            <span class="tgl-track"><span class="tgl-thumb"></span></span>
-                        </label>
+                </article>
+
+                <!-- ═══ 3. SOLENOID VALVE 2 ═══ -->
+                <article class="device-card valve-card" id="card-valve2">
+                    <div class="card-accent"></div>
+                    <div class="card-body">
+                        <div class="card-media valve-media">
+                            <img src="assets/solenoid-valve.jpg" alt="Solenoid Valve 2" class="card-hardware-img" />
+                            <span class="card-gpio-pill">GPIO 18</span>
+                        </div>
+
+                        <div class="card-top">
+                            <div class="card-info">
+                                <h3 class="card-name">Solenoid Valve 2</h3>
+                                <span class="card-desc">Irrigation Zone 2</span>
+                            </div>
+                            <div class="card-state-wrap">
+                                <span id="valve2-status-dot" class="state-dot dot-off"></span>
+                                <span id="valve2-status-label" class="state-label lbl-off">OFF</span>
+                            </div>
+                        </div>
+
+                        <!-- Minimal inline notice -->
+                        <div id="notice-valve2" class="card-inline-notice hidden" role="status" aria-live="polite"></div>
+
+                        <div class="card-row toggle-row" id="wrap-toggle-valve2">
+                            <span class="row-label">Power Relay</span>
+                            <label class="tgl-switch" title="Toggle requires ESP32 & Firebase connected">
+                                <input type="checkbox" id="valve2-toggle" class="tgl-input" disabled />
+                                <span class="tgl-track"><span class="tgl-thumb"></span></span>
+                            </label>
+                        </div>
                     </div>
-                    <p class="card-desc">Ventilation &amp; exhaust</p>
-                </div>
-            </article>
+                </article>
 
-        </div><!-- /cards-grid -->
+                <!-- ═══ 4. SOLENOID VALVE 3 ═══ -->
+                <article class="device-card valve-card" id="card-valve3">
+                    <div class="card-accent"></div>
+                    <div class="card-body">
+                        <div class="card-media valve-media">
+                            <img src="assets/solenoid-valve.jpg" alt="Solenoid Valve 3" class="card-hardware-img" />
+                            <span class="card-gpio-pill">GPIO 19</span>
+                        </div>
 
-        <footer class="site-footer">
-            🌱 SmartAgri &copy; 2026 &middot; ESP32 + Firebase Realtime Database
-        </footer>
-    </main>
-</div><!-- /dashboard -->
+                        <div class="card-top">
+                            <div class="card-info">
+                                <h3 class="card-name">Solenoid Valve 3</h3>
+                                <span class="card-desc">Irrigation Zone 3</span>
+                            </div>
+                            <div class="card-state-wrap">
+                                <span id="valve3-status-dot" class="state-dot dot-off"></span>
+                                <span id="valve3-status-label" class="state-label lbl-off">OFF</span>
+                            </div>
+                        </div>
 
-<script type="module" src="app.js"></script>
+                        <!-- Minimal inline notice -->
+                        <div id="notice-valve3" class="card-inline-notice hidden" role="status" aria-live="polite"></div>
+
+                        <div class="card-row toggle-row" id="wrap-toggle-valve3">
+                            <span class="row-label">Power Relay</span>
+                            <label class="tgl-switch" title="Toggle requires ESP32 & Firebase connected">
+                                <input type="checkbox" id="valve3-toggle" class="tgl-input" disabled />
+                                <span class="tgl-track"><span class="tgl-thumb"></span></span>
+                            </label>
+                        </div>
+                    </div>
+                </article>
+
+                <!-- ═══ 5. AGRICULTURE LIGHT ═══ -->
+                <article class="device-card light-card" id="card-light">
+                    <div class="card-accent"></div>
+                    <div class="card-body">
+                        <div class="card-media light-media">
+                            <img src="assets/agri-light.jpg" alt="Agriculture Light" class="card-hardware-img" />
+                            <span class="card-gpio-pill">GPIO 25</span>
+                        </div>
+
+                        <div class="card-top">
+                            <div class="card-info">
+                                <h3 class="card-name">Agriculture Light</h3>
+                                <span class="card-desc">Greenhouse Grow Lights</span>
+                            </div>
+                            <div class="card-state-wrap">
+                                <span id="light-status-dot" class="state-dot dot-off"></span>
+                                <span id="light-status-label" class="state-label lbl-off">OFF</span>
+                            </div>
+                        </div>
+
+                        <!-- Minimal inline notice -->
+                        <div id="notice-light" class="card-inline-notice hidden" role="status" aria-live="polite"></div>
+
+                        <div class="card-row toggle-row" id="wrap-toggle-light">
+                            <span class="row-label">Power Relay</span>
+                            <label class="tgl-switch" title="Toggle requires ESP32 & Firebase connected">
+                                <input type="checkbox" id="light-toggle" class="tgl-input" disabled />
+                                <span class="tgl-track"><span class="tgl-thumb"></span></span>
+                            </label>
+                        </div>
+                    </div>
+                </article>
+
+                <!-- ═══ 6. EXHAUST / FARM FAN ═══ -->
+                <article class="device-card fan-card" id="card-fan">
+                    <div class="card-accent"></div>
+                    <div class="card-body">
+                        <div class="card-media fan-media">
+                            <img src="assets/farm-fan.jpg" alt="Exhaust / Farm Fan" class="card-hardware-img fan-hardware-img" />
+                            <span class="card-gpio-pill">GPIO 26</span>
+                        </div>
+
+                        <div class="card-top">
+                            <div class="card-info">
+                                <h3 class="card-name">Exhaust / Farm Fan</h3>
+                                <span class="card-desc">Ventilation &amp; Climate</span>
+                            </div>
+                            <div class="card-state-wrap">
+                                <span id="fan-status-dot" class="state-dot dot-off"></span>
+                                <span id="fan-status-label" class="state-label lbl-off">OFF</span>
+                            </div>
+                        </div>
+
+                        <!-- Minimal inline notice -->
+                        <div id="notice-fan" class="card-inline-notice hidden" role="status" aria-live="polite"></div>
+
+                        <div class="card-row toggle-row" id="wrap-toggle-fan">
+                            <span class="row-label">Power Relay</span>
+                            <label class="tgl-switch" title="Toggle requires ESP32 & Firebase connected">
+                                <input type="checkbox" id="fan-toggle" class="tgl-input" disabled />
+                                <span class="tgl-track"><span class="tgl-thumb"></span></span>
+                            </label>
+                        </div>
+                    </div>
+                </article>
+
+            </div><!-- /cards-grid -->
+
+            <footer class="site-footer">
+                🌱 SmartAgri &copy; 2026 &middot; ESP32 Hardware + Firebase Realtime Database
+            </footer>
+        </main>
+    </div><!-- /dashboard -->
+
+    <script type="module" src="app.js"></script>
 </body>
 </html>

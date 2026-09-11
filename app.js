@@ -1,12 +1,12 @@
 /**
- * SmartAgri – app.js  v2.1
+ * SmartAgri – app.js  v2.2
  * ESP32 Agriculture Automation Dashboard
  *
- * Changes in v2.1:
- *  - Timer settings collapsed by default (accordion button)
- *  - Inline remaining-time display on pump card (always visible when active)
- *  - Toast notifications moved to top-right
- *  - Improved mobile UX
+ * Changes in v2.2:
+ *  - Removed floating toast popups; introduced minimal in-card notifications
+ *  - Controls lock: device toggles can only be operated when BOTH ESP32 & Firebase are connected
+ *  - Top bar system status indicator showing SYSTEM ONLINE / OFFLINE
+ *  - Attached hardware image integrations with dynamic active states
  *
  * Firebase Modular SDK v10
  * GPIO Map: 16=Pump · 17=V1 · 18=V2 · 19=V3 · 25=Light · 26=Fan
@@ -55,17 +55,20 @@ const loginBtn     = $("login-btn");
 const loginError   = $("login-error");
 
 // Header
-const headerEmail      = $("header-email");
-const logoutBtn        = $("logout-btn");
-const headerFbBadge    = $("header-firebase-badge");
-const headerTime       = $("header-time");
+const headerEmail         = $("header-email");
+const logoutBtn           = $("logout-btn");
+const headerSystemStatus  = $("header-system-status");
+const systemStatusText    = $("system-status-text");
+const headerTime          = $("header-time");
 
-// Status strip
-const sbFirebase    = $("sb-firebase");
-const sbEsp32       = $("sb-esp32");
-const sbActiveCount = $("sb-active-count");
-const sbLastSeen    = $("sb-last-seen");
-const errBanner     = $("firebase-error-banner");
+// Status strip & Lock banner
+const sbFirebase       = $("sb-firebase");
+const sbEsp32          = $("sb-esp32");
+const sbActiveCount    = $("sb-active-count");
+const sbLastSeen       = $("sb-last-seen");
+const systemLockBanner = $("system-lock-banner");
+const lockBannerMsg    = $("lock-banner-msg");
+const cardsGrid        = $("cards-grid");
 
 // Device toggles
 const deviceToggles = {
@@ -77,6 +80,16 @@ const deviceToggles = {
     fan:    $("fan-toggle"),
 };
 
+// Device toggle wrappers (for click handling when locked)
+const toggleWrappers = {
+    pump:   $("wrap-toggle-pump"),
+    valve1: $("wrap-toggle-valve1"),
+    valve2: $("wrap-toggle-valve2"),
+    valve3: $("wrap-toggle-valve3"),
+    light:  $("wrap-toggle-light"),
+    fan:    $("wrap-toggle-fan"),
+};
+
 // Device status dots/labels
 const statusDots = {
     pump:   $("pump-status-dot"),
@@ -86,6 +99,7 @@ const statusDots = {
     light:  $("light-status-dot"),
     fan:    $("fan-status-dot"),
 };
+
 const statusLabels = {
     pump:   $("pump-status-label"),
     valve1: $("valve1-status-label"),
@@ -94,6 +108,7 @@ const statusLabels = {
     light:  $("light-status-label"),
     fan:    $("fan-status-label"),
 };
+
 const deviceCards = {
     pump:   $("card-pump"),
     valve1: $("card-valve1"),
@@ -103,10 +118,18 @@ const deviceCards = {
     fan:    $("card-fan"),
 };
 
-// Pump-specific
-const pumpModeBadge   = $("pump-mode-badge");
+// Minimal In-Card Notice Elements
+const cardNotices = {
+    pump:   $("notice-pump"),
+    valve1: $("notice-valve1"),
+    valve2: $("notice-valve2"),
+    valve3: $("notice-valve3"),
+    light:  $("notice-light"),
+    fan:    $("notice-fan"),
+};
 
-// Inline timer display (always-visible when active)
+// Pump-specific elements
+const pumpModeBadge       = $("pump-mode-badge");
 const pumpTimerMini       = $("pump-timer-mini");
 const pumpRemainingInline = $("pump-remaining-inline");
 const pumpProgressWrap    = $("pump-progress-wrap");
@@ -128,12 +151,15 @@ const timerCompletedDiv = $("timer-completed-display");
 /* ═══════════════════════════════════════════════════════════
    3. STATE
 ═══════════════════════════════════════════════════════════ */
-let firebaseConnected        = false;
-let timerIntervalId          = null;
-let timerEndTime             = 0;   // absolute ms
-let timerDuration            = 0;   // seconds
-let ignorePumpToggle         = false;
-let dashboardInitialized     = false;
+let firebaseConnected    = false;
+let esp32Online          = false;
+let esp32LastSeen        = 0;
+let timerIntervalId      = null;
+let timerEndTime         = 0;   // absolute ms
+let timerDuration        = 0;   // seconds
+let ignorePumpToggle     = false;
+let dashboardInitialized = false;
+const noticeTimeouts     = {};
 
 const DEVICE_PATHS = {
     pump:   "waterPump",
@@ -147,8 +173,8 @@ const DEVICE_PATHS = {
 /* ═══════════════════════════════════════════════════════════
    4. UTILITIES
 ═══════════════════════════════════════════════════════════ */
-const show = el => el.classList.remove("hidden");
-const hide = el => el.classList.add("hidden");
+const show = el => el && el.classList.remove("hidden");
+const hide = el => el && el.classList.add("hidden");
 
 function formatHMS(ms) {
     const s = Math.max(0, Math.ceil(ms / 1000));
@@ -171,38 +197,115 @@ function durationLabel(h, m, s) {
     return p.join(" ") || "0s";
 }
 
+function deviceLabel(key) {
+    const map = {
+        pump:   "Water Pump",
+        valve1: "Solenoid Valve 1",
+        valve2: "Solenoid Valve 2",
+        valve3: "Solenoid Valve 3",
+        light:  "Agriculture Light",
+        fan:    "Exhaust Fan"
+    };
+    return map[key] ?? key;
+}
+
 /* ═══════════════════════════════════════════════════════════
-   5. TOAST NOTIFICATIONS
+   5. MINIMAL IN-CARD NOTIFICATIONS (Replaces Floating Toasts)
 ═══════════════════════════════════════════════════════════ */
-const ICONS = { success: "✅", error: "❌", warning: "⚠️", info: "ℹ️" };
+const NOTICE_ICONS = {
+    success: "✓",
+    info:    "ℹ",
+    warn:    "⚠",
+    error:   "✕"
+};
 
-function showToast(message, type = "info", title = "", duration = 3500) {
-    const container = $("toast-container");
-    const toast = document.createElement("div");
-    toast.className = `toast toast-${type}`;
-    toast.setAttribute("role", "alert");
-    toast.innerHTML = `
-        <span class="toast-icon">${ICONS[type] ?? "ℹ️"}</span>
-        <div class="toast-body">
-            ${title ? `<div class="toast-title">${title}</div>` : ""}
-            <div class="toast-msg">${message}</div>
-        </div>
-        <button class="toast-close" aria-label="Dismiss">✕</button>`;
+/**
+ * Show a sleek, minimal notification banner directly inside the target device card.
+ * @param {string} key - device key (pump, valve1, etc.)
+ * @param {string} message - text to display
+ * @param {'success'|'info'|'warn'|'error'} type
+ * @param {number} duration - ms before auto-fade
+ */
+function showCardNotice(key, message, type = "info", duration = 3000) {
+    const el = cardNotices[key];
+    if (!el) return;
 
-    const closeBtn = toast.querySelector(".toast-close");
-    const autoTimer = setTimeout(() => dismissToast(toast), duration);
-    closeBtn.addEventListener("click", () => { clearTimeout(autoTimer); dismissToast(toast); });
+    if (noticeTimeouts[key]) {
+        clearTimeout(noticeTimeouts[key]);
+    }
 
-    container.appendChild(toast);
-}
+    const icon = NOTICE_ICONS[type] ?? "ℹ";
+    el.innerHTML = `<span>${icon}</span><span>${message}</span>`;
+    el.className = `card-inline-notice notice-${type}`;
+    show(el);
 
-function dismissToast(toast) {
-    toast.classList.add("toast-exit");
-    toast.addEventListener("animationend", () => toast.remove(), { once: true });
+    noticeTimeouts[key] = setTimeout(() => {
+        hide(el);
+        delete noticeTimeouts[key];
+    }, duration);
 }
 
 /* ═══════════════════════════════════════════════════════════
-   6. SCREEN TRANSITIONS
+   6. DUAL-CONNECTION SYSTEM STATUS (ESP32 + Firebase)
+═══════════════════════════════════════════════════════════ */
+/**
+ * Updates the Top Bar System Status and locks/unlocks controls.
+ * Buttons can turn ONLY when BOTH device ESP32 & Firebase are connected.
+ */
+function updateSystemConnectionState() {
+    const isSystemOnline = firebaseConnected && esp32Online;
+
+    // 1. Top Bar System Indicator
+    if (isSystemOnline) {
+        headerSystemStatus.className = "system-status-pill status-online";
+        systemStatusText.textContent = "SYSTEM ONLINE";
+        headerSystemStatus.title     = "ESP32 hardware & Firebase connected";
+    } else {
+        headerSystemStatus.className = "system-status-pill status-offline";
+        if (!firebaseConnected && !esp32Online) {
+            systemStatusText.textContent = "SYSTEM OFFLINE";
+            headerSystemStatus.title     = "Both ESP32 and Firebase are disconnected";
+        } else if (!firebaseConnected) {
+            systemStatusText.textContent = "SYSTEM OFFLINE (Firebase)";
+            headerSystemStatus.title     = "Firebase connection lost";
+        } else {
+            systemStatusText.textContent = "SYSTEM OFFLINE (ESP32)";
+            headerSystemStatus.title     = "ESP32 hardware is offline or waiting for heartbeat";
+        }
+    }
+
+    // 2. Lock / Unlock Cards and Controls
+    if (isSystemOnline) {
+        cardsGrid.classList.remove("controls-locked");
+        hide(systemLockBanner);
+        Object.values(deviceToggles).forEach(toggle => {
+            if (toggle) toggle.disabled = false;
+        });
+        if (startTimerBtn) startTimerBtn.disabled = false;
+        if (stopTimerBtn)  stopTimerBtn.disabled = false;
+    } else {
+        cardsGrid.classList.add("controls-locked");
+        show(systemLockBanner);
+
+        // Customize lock banner message
+        if (!firebaseConnected && !esp32Online) {
+            lockBannerMsg.textContent = "Controls locked: Both ESP32 device & Firebase must be connected to toggle switches.";
+        } else if (!firebaseConnected) {
+            lockBannerMsg.textContent = "Controls locked: Reconnecting to Firebase database...";
+        } else {
+            lockBannerMsg.textContent = "Controls locked: Waiting for ESP32 hardware to connect and send heartbeat.";
+        }
+
+        Object.values(deviceToggles).forEach(toggle => {
+            if (toggle) toggle.disabled = true;
+        });
+        if (startTimerBtn) startTimerBtn.disabled = true;
+        if (stopTimerBtn)  stopTimerBtn.disabled = true;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   7. SCREEN TRANSITIONS & CLOCK
 ═══════════════════════════════════════════════════════════ */
 function hideLoading() {
     elLoading.classList.add("fade-out");
@@ -222,9 +325,6 @@ function showDashboard(user) {
     startClock();
 }
 
-/* ═══════════════════════════════════════════════════════════
-   7. CLOCK
-═══════════════════════════════════════════════════════════ */
 function startClock() {
     const tick = () => {
         headerTime.textContent = new Date().toLocaleTimeString([], {
@@ -236,59 +336,67 @@ function startClock() {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   8. FIREBASE CONNECTION STATUS
+   8. FIREBASE CONNECTION LISTENER
 ═══════════════════════════════════════════════════════════ */
 function watchFirebaseConnection() {
     onValue(ref(db, ".info/connected"), snap => {
         firebaseConnected = snap.val() === true;
 
-        const status = firebaseConnected ? "connected" : "disconnected";
-        setConnectionBadge(headerFbBadge, "conn", status,
-            firebaseConnected ? "Connected" : "Disconnected");
-        setConnectionBadge(sbFirebase, "pill", status,
-            firebaseConnected ? "Connected" : "Disconnected");
+        sbFirebase.className = "";
+        sbFirebase.classList.add("ss-pill", firebaseConnected ? "pill-connected" : "pill-disconnected");
+        sbFirebase.innerHTML = `<span class="ss-dot"></span><span>${firebaseConnected ? "Connected" : "Disconnected"}</span>`;
 
-        if (firebaseConnected) {
-            hide(errBanner);
-            document.getElementById("cards-grid").classList.remove("controls-disabled");
-            showToast("Firebase connected", "success", "Connection", 2500);
-        } else {
-            show(errBanner);
-            document.getElementById("cards-grid").classList.add("controls-disabled");
-            showToast("Firebase connection lost", "error", "Connection", 4000);
-        }
+        updateSystemConnectionState();
     });
-}
-
-/**
- * Update a badge/pill element's class and label text.
- * @param {HTMLElement} el
- * @param {'conn'|'pill'} prefix   - CSS class prefix
- * @param {string} status          - e.g. "connected"
- * @param {string} labelText
- */
-function setConnectionBadge(el, prefix, status, labelText) {
-    // Remove old status class
-    el.classList.forEach(c => { if (c.startsWith(`${prefix}-`)) el.classList.remove(c); });
-    el.classList.add(`${prefix}-${status}`);
-    const span = el.querySelector("span:last-child");
-    if (span) span.textContent = labelText;
 }
 
 /* ═══════════════════════════════════════════════════════════
-   9. ESP32 STATUS
+   9. ESP32 STATUS & HEARTBEAT
 ═══════════════════════════════════════════════════════════ */
+function evaluateEsp32Online(data) {
+    if (!data) return false;
+    // Check direct boolean flags if ESP32 writes them
+    if (data.esp32Online === true || data.online === true) {
+        return true;
+    }
+    // Check heartbeat timestamp (within last 25 seconds)
+    const ts = data.lastSeen ?? 0;
+    if (ts > 0) {
+        // Support either epoch milliseconds or epoch seconds
+        const ageMs = (ts < 10000000000) ? (Date.now() - ts * 1000) : (Date.now() - ts);
+        return ageMs >= 0 && ageMs < 25000;
+    }
+    return false;
+}
+
 function watchEsp32Status() {
     onValue(ref(db, "system"), snap => {
         const data     = snap.val() ?? {};
-        const lastSeen = data.lastSeen ?? 0;
-        const online   = (Date.now() - lastSeen) < 15000;
+        esp32LastSeen  = data.lastSeen ?? 0;
+        esp32Online    = evaluateEsp32Online(data);
 
         sbEsp32.className = "";
-        sbEsp32.classList.add("ss-pill", online ? "pill-online" : "pill-offline");
-        sbEsp32.innerHTML = `<span class="ss-dot"></span><span>${online ? "Online" : "Offline"}</span>`;
-        sbLastSeen.textContent = lastSeen ? formatTime(lastSeen) : "—";
+        sbEsp32.classList.add("ss-pill", esp32Online ? "pill-online" : "pill-offline");
+        sbEsp32.innerHTML = `<span class="ss-dot"></span><span>${esp32Online ? "Online" : "Offline"}</span>`;
+        sbLastSeen.textContent = esp32LastSeen ? formatTime(esp32LastSeen) : "—";
+
+        updateSystemConnectionState();
     });
+
+    // Heartbeat ticker: If no new ping arrives within 25 seconds, mark ESP32 offline
+    setInterval(() => {
+        if (esp32LastSeen > 0) {
+            const ageMs = (esp32LastSeen < 10000000000) ? (Date.now() - esp32LastSeen * 1000) : (Date.now() - esp32LastSeen);
+            const stillAlive = ageMs >= 0 && ageMs < 25000;
+            if (esp32Online !== stillAlive) {
+                esp32Online = stillAlive;
+                sbEsp32.className = "";
+                sbEsp32.classList.add("ss-pill", esp32Online ? "pill-online" : "pill-offline");
+                sbEsp32.innerHTML = `<span class="ss-dot"></span><span>${esp32Online ? "Online" : "Offline"}</span>`;
+                updateSystemConnectionState();
+            }
+        }
+    }, 3000);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -314,15 +422,15 @@ function updateDeviceUI(key, state) {
 
 function updateActiveCount() {
     let n = 0;
-    Object.values(deviceToggles).forEach(t => { if (t.checked) n++; });
+    Object.values(deviceToggles).forEach(t => { if (t && t.checked) n++; });
     sbActiveCount.textContent = String(n);
 }
 
 /* ═══════════════════════════════════════════════════════════
-   11. FIREBASE REALTIME LISTENERS
+   11. FIREBASE REALTIME LISTENERS FOR DEVICES
 ═══════════════════════════════════════════════════════════ */
 function startDeviceListeners() {
-    // Simple devices
+    // Simple devices (valves, light, fan)
     ["valve1", "valve2", "valve3", "light", "fan"].forEach(key => {
         onValue(ref(db, `agriculture/${DEVICE_PATHS[key]}/state`), snap => {
             updateDeviceUI(key, snap.val() === true);
@@ -330,7 +438,7 @@ function startDeviceListeners() {
         });
     });
 
-    // Water pump (state + timer)
+    // Water pump (state + mode + timer)
     onValue(ref(db, "agriculture/waterPump"), snap => {
         const data  = snap.val() ?? {};
         const state = data.state === true;
@@ -344,7 +452,7 @@ function startDeviceListeners() {
         pumpModeBadge.textContent = mode === "timer" ? "Timer" : "Manual";
         pumpModeBadge.className   = `mode-chip ${mode === "timer" ? "chip-timer" : "chip-manual"}`;
 
-        // Timer
+        // Timer state from database
         const timerEnabled = timer.enabled === true;
         const fbEnd        = timer.endTime   ?? 0;
         const fbDur        = timer.duration  ?? 0;
@@ -372,55 +480,86 @@ function startDeviceListeners() {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   12. DEVICE TOGGLE HANDLERS
+   12. DEVICE TOGGLE HANDLERS WITH DUAL-CONNECTION GUARD
 ═══════════════════════════════════════════════════════════ */
 function bindSimpleToggle(key, path) {
-    deviceToggles[key].addEventListener("change", async e => {
+    const toggle = deviceToggles[key];
+    const wrap   = toggleWrappers[key];
+
+    // Tap on row / toggle wrapper when locked
+    if (wrap) {
+        wrap.addEventListener("click", e => {
+            if (!firebaseConnected || !esp32Online) {
+                showCardNotice(key, "⚠️ Locked: Connect ESP32 & Firebase", "warn", 2500);
+            }
+        });
+    }
+
+    toggle.addEventListener("change", async e => {
+        // Enforce dual-connection constraint
+        if (!firebaseConnected || !esp32Online) {
+            e.preventDefault();
+            e.target.checked = !e.target.checked;
+            showCardNotice(key, "⚠️ Both ESP32 & Firebase must be online", "warn", 3000);
+            return;
+        }
+
         const on = e.target.checked;
         try {
             await set(ref(db, `agriculture/${path}/state`), on);
-            showToast(
-                `${deviceLabel(key)} turned ${on ? "ON" : "OFF"}`,
-                on ? "success" : "info",
-                "Device Control"
-            );
+            showCardNotice(key, `${deviceLabel(key)} turned ${on ? "ON" : "OFF"}`, on ? "success" : "info", 2500);
         } catch (err) {
             console.error(err);
-            showToast(`Unable to update ${deviceLabel(key)}. Check connection.`, "error", "Error");
+            showCardNotice(key, "Sync failed. Check connection.", "error", 3500);
             e.target.checked = !on;
         }
     });
 }
 
 function bindPumpToggle() {
-    deviceToggles.pump.addEventListener("change", async e => {
+    const toggle = deviceToggles.pump;
+    const wrap   = toggleWrappers.pump;
+
+    if (wrap) {
+        wrap.addEventListener("click", () => {
+            if (!firebaseConnected || !esp32Online) {
+                showCardNotice("pump", "⚠️ Locked: Connect ESP32 & Firebase", "warn", 2500);
+            }
+        });
+    }
+
+    toggle.addEventListener("change", async e => {
         if (ignorePumpToggle) { ignorePumpToggle = false; return; }
+
+        // Enforce dual-connection constraint
+        if (!firebaseConnected || !esp32Online) {
+            e.preventDefault();
+            ignorePumpToggle = true;
+            e.target.checked = !e.target.checked;
+            showCardNotice("pump", "⚠️ Both ESP32 & Firebase must be online", "warn", 3000);
+            return;
+        }
+
         const on = e.target.checked;
         try {
             if (!on) {
-                // Manual OFF — also cancel any timer
+                // Manual OFF — also cancel any active timer
                 await update(ref(db, "agriculture/waterPump"), { state: false, mode: "manual" });
                 await update(ref(db, "agriculture/waterPump/timer"),
                     { enabled: false, startTime: 0, endTime: 0, duration: 0 });
-                showToast("Water Pump turned OFF", "info", "Device Control");
+                showCardNotice("pump", "Water Pump turned OFF", "info", 2500);
                 stopCountdown();
             } else {
                 await update(ref(db, "agriculture/waterPump"), { state: true, mode: "manual" });
-                showToast("Water Pump turned ON", "success", "Device Control");
+                showCardNotice("pump", "Water Pump turned ON", "success", 2500);
             }
         } catch (err) {
             console.error(err);
-            showToast("Unable to update Water Pump. Check connection.", "error", "Error");
+            showCardNotice("pump", "Sync failed. Check connection.", "error", 3500);
             ignorePumpToggle = true;
             e.target.checked = !on;
         }
     });
-}
-
-function deviceLabel(key) {
-    const map = { pump:"Water Pump", valve1:"Valve 1", valve2:"Valve 2",
-                  valve3:"Valve 3", light:"Light", fan:"Fan" };
-    return map[key] ?? key;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -435,7 +574,6 @@ function initTimerAccordion() {
     });
 }
 
-/** Auto-open accordion when timer is active so user can see STOP button */
 function openTimerAccordion() {
     timerToggleBtn.setAttribute("aria-expanded", "true");
     timerPanel.setAttribute("aria-hidden", "false");
@@ -460,29 +598,34 @@ presetBtns.forEach(btn => {
    15. TIMER — START
 ═══════════════════════════════════════════════════════════ */
 startTimerBtn.addEventListener("click", async () => {
+    if (!firebaseConnected || !esp32Online) {
+        showCardNotice("pump", "⚠️ Locked: Connect ESP32 & Firebase", "warn", 3000);
+        return;
+    }
+
     const h   = parseInt(timerHoursInput.value, 10) || 0;
     const m   = parseInt(timerMinsInput.value,  10) || 0;
     const s   = parseInt(timerSecsInput.value,  10) || 0;
     const tot = h * 3600 + m * 60 + s;
 
     if (tot <= 0) {
-        showToast("Select or enter a valid duration first.", "warning", "Timer");
+        showCardNotice("pump", "Select or enter a valid duration first", "warn", 2500);
         return;
     }
 
-    const now    = Date.now();
-    const endTs  = now + tot * 1000;
+    const now   = Date.now();
+    const endTs = now + tot * 1000;
 
     try {
         await update(ref(db, "agriculture/waterPump"), { state: true, mode: "timer" });
         await update(ref(db, "agriculture/waterPump/timer"), {
             enabled: true, startTime: now, endTime: endTs, duration: tot
         });
-        showToast(`Timer started — ${durationLabel(h, m, s)}`, "success", "Pump Timer");
+        showCardNotice("pump", `Timer started: ${durationLabel(h, m, s)}`, "success", 3000);
         presetBtns.forEach(b => b.classList.remove("active"));
     } catch (err) {
         console.error(err);
-        showToast("Unable to start timer. Check connection.", "error", "Error");
+        showCardNotice("pump", "Could not start timer. Check connection.", "error", 3500);
     }
 });
 
@@ -494,11 +637,11 @@ stopTimerBtn.addEventListener("click", async () => {
         await update(ref(db, "agriculture/waterPump"), { state: false, mode: "manual" });
         await update(ref(db, "agriculture/waterPump/timer"),
             { enabled: false, startTime: 0, endTime: 0, duration: 0 });
-        showToast("Timer stopped — Pump OFF", "info", "Pump Timer");
+        showCardNotice("pump", "Timer stopped — Pump OFF", "info", 2500);
         stopCountdown();
     } catch (err) {
         console.error(err);
-        showToast("Unable to stop timer. Check connection.", "error", "Error");
+        showCardNotice("pump", "Could not stop timer. Check connection.", "error", 3500);
     }
 });
 
@@ -517,15 +660,13 @@ function hidePumpTimerActive() {
 }
 
 function startCountdown() {
-    stopCountdown();   // prevent duplicates
+    stopCountdown();
     timerIntervalId = setInterval(() => {
         const rem = timerEndTime - Date.now();
         if (rem <= 0) { handleTimerExpired(); return; }
 
-        // Update inline display
         pumpRemainingInline.textContent = formatHMS(rem);
 
-        // Progress bar — shrinks from 100% → 0%
         const pct = (rem / (timerDuration * 1000)) * 100;
         pumpProgressBar.style.width = `${Math.max(0, pct)}%`;
     }, 500);
@@ -533,15 +674,15 @@ function startCountdown() {
 
 function stopCountdown() {
     if (timerIntervalId) { clearInterval(timerIntervalId); timerIntervalId = null; }
-    pumpRemainingInline.textContent  = "00:00:00";
-    pumpProgressBar.style.width = "100%";
+    pumpRemainingInline.textContent = "00:00:00";
+    pumpProgressBar.style.width     = "100%";
 }
 
 function handleTimerExpired() {
     stopCountdown();
     hidePumpTimerActive();
     showTimerDone();
-    showToast("Water Pump timer complete — Pump OFF", "success", "Timer Complete", 5000);
+    showCardNotice("pump", "Timer completed — Pump OFF", "success", 5000);
 }
 
 function showTimerDone() {
@@ -591,9 +732,9 @@ function friendlyError(code) {
 
 // Password eye toggle
 togglePwdBtn.addEventListener("click", () => {
-    const show = loginPwd.type === "password";
-    loginPwd.type            = show ? "text" : "password";
-    togglePwdBtn.textContent = show ? "🙈" : "👁";
+    const showType = loginPwd.type === "password";
+    loginPwd.type            = showType ? "text" : "password";
+    togglePwdBtn.textContent = showType ? "🙈" : "👁";
 });
 
 /* ═══════════════════════════════════════════════════════════
@@ -602,7 +743,6 @@ togglePwdBtn.addEventListener("click", () => {
 logoutBtn.addEventListener("click", async () => {
     try {
         await signOut(auth);
-        showToast("Logged out.", "info", "Auth");
     } catch (err) { console.error(err); }
 });
 
@@ -638,6 +778,9 @@ function initDashboard() {
     // Timer accordion
     initTimerAccordion();
 
+    // Initial system connection status
+    updateSystemConnectionState();
+
     // Firebase listeners
     watchFirebaseConnection();
     watchEsp32Status();
@@ -653,7 +796,7 @@ function initDashboard() {
 async function ensureDbStructure() {
     try {
         const snap = await get(ref(db, "agriculture"));
-        if (snap && snap.exists()) return;   // already set up
+        if (snap && snap.exists()) return;
 
         await set(ref(db, "/"), {
             agriculture: {
@@ -671,7 +814,7 @@ async function ensureDbStructure() {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   23. UNLOAD GUARD (active timer warning)
+   23. UNLOAD GUARD
 ═══════════════════════════════════════════════════════════ */
 window.addEventListener("beforeunload", e => {
     if (timerIntervalId) {

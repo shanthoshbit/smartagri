@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#16a34a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <title>SmartAgri - IoT for Smart Farming</title>
+    <title>SmartAgri</title>
 
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -28,7 +28,7 @@
     <div id="loading-screen" class="loading-screen">
         <div class="loading-content">
             <div class="loading-logo-wrap">
-                <img src="assets/smartagri.jpg" alt="SmartAgri Logo" class="loading-logo-img" onerror="this.style.display='none'" />
+                <img src="assets/smartagri.png" alt="SmartAgri Logo" class="loading-logo-img" onerror="this.style.display='none'" />
                 <span class="material-symbols-outlined loading-icon" id="loading-icon-fallback">eco</span>
             </div>
             <h1 class="loading-brand">SmartAgri</h1>
@@ -43,7 +43,7 @@
         <div class="login-card">
             <div class="login-header">
                 <div class="login-logo-wrap">
-                    <img src="assets/smartagri.jpg" alt="SmartAgri" class="login-logo-img" onerror="this.style.display='none';document.getElementById('login-logo-fallback').style.display='block'" />
+                    <img src="assets/smartagri.png" alt="SmartAgri" class="login-logo-img" onerror="this.style.display='none';document.getElementById('login-logo-fallback').style.display='block'" />
                     <span class="material-symbols-outlined login-logo-icon" id="login-logo-fallback" style="display:none">eco</span>
                 </div>
                 <h1 class="login-title">SmartAgri</h1>
@@ -514,56 +514,7 @@
                 </div>
 
                 <div class="schedule-list" id="schedule-list">
-                    <div class="schedule-card">
-                        <div class="sch-top">
-                            <div class="sch-icon blue">
-                                <span class="material-symbols-outlined">water_drop</span>
-                            </div>
-                            <div class="sch-info">
-                                <h3>Zone 1</h3>
-                                <span class="sch-time">06:00 AM – 06:30 AM</span>
-                                <span class="sch-days">Mon, Wed, Fri</span>
-                            </div>
-                            <label class="toggle-switch" aria-label="Toggle Zone 1 Schedule">
-                                <input type="checkbox" id="sch-toggle-zone1" checked>
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <div class="schedule-card">
-                        <div class="sch-top">
-                            <div class="sch-icon blue">
-                                <span class="material-symbols-outlined">water_drop</span>
-                            </div>
-                            <div class="sch-info">
-                                <h3>Zone 2</h3>
-                                <span class="sch-time">07:00 AM – 07:30 AM</span>
-                                <span class="sch-days">Tue, Thu, Sat</span>
-                            </div>
-                            <label class="toggle-switch" aria-label="Toggle Zone 2 Schedule">
-                                <input type="checkbox" id="sch-toggle-zone2">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <div class="schedule-card">
-                        <div class="sch-top">
-                            <div class="sch-icon blue">
-                                <span class="material-symbols-outlined">water_drop</span>
-                            </div>
-                            <div class="sch-info">
-                                <h3>Zone 3</h3>
-                                <span class="sch-time">05:00 PM – 05:30 PM</span>
-                                <span class="sch-days">Daily</span>
-                            </div>
-                            <label class="toggle-switch" aria-label="Toggle Zone 3 Schedule">
-                                <input type="checkbox" id="sch-toggle-zone3">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                    </div>
+                    <!-- Dynamic schedules will be injected here -->
                 </div>
 
                 <button class="btn-primary floating-btn" id="btn-add-schedule">
@@ -728,6 +679,68 @@
             </button>
         </nav>
 
+    </div>
+
+    <!-- ═══════════════════ SCHEDULE MODAL ═══════════════════ -->
+    <div id="schedule-modal" class="modal hidden">
+        <div class="modal-bg-overlay" id="sch-modal-overlay"></div>
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 id="sch-modal-title">Add Schedule</h3>
+                <button class="icon-btn" id="btn-close-sch-modal" aria-label="Close">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="sch-form">
+                    <input type="hidden" id="sch-id" />
+                    <div class="form-group">
+                        <label>Device / Zone</label>
+                        <div class="input-wrap">
+                            <span class="material-symbols-outlined input-icon">router</span>
+                            <select id="sch-device" class="form-input" required>
+                                <option value="valve1">Zone 1 (Valve 1)</option>
+                                <option value="valve2">Zone 2 (Valve 2)</option>
+                                <option value="valve3">Zone 3 (Valve 3)</option>
+                                <option value="pump">Water Pump</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Start Time</label>
+                            <div class="input-wrap">
+                                <span class="material-symbols-outlined input-icon">schedule</span>
+                                <input type="time" id="sch-time" class="form-input" required />
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Duration (mins)</label>
+                            <div class="input-wrap">
+                                <span class="material-symbols-outlined input-icon">timer</span>
+                                <input type="number" id="sch-duration" class="form-input" min="1" max="1440" placeholder="15" required />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Repeat Days</label>
+                        <div class="day-picker" id="sch-days">
+                            <button type="button" class="day-btn" data-day="0">S</button>
+                            <button type="button" class="day-btn" data-day="1">M</button>
+                            <button type="button" class="day-btn" data-day="2">T</button>
+                            <button type="button" class="day-btn" data-day="3">W</button>
+                            <button type="button" class="day-btn" data-day="4">T</button>
+                            <button type="button" class="day-btn" data-day="5">F</button>
+                            <button type="button" class="day-btn" data-day="6">S</button>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary full-width mt-20">
+                        <span class="material-symbols-outlined">save</span>
+                        Save Schedule
+                    </button>
+                </form>
+            </div>
+        </div>
     </div>
 
     <script type="module" src="app.js"></script>

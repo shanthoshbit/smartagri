@@ -633,6 +633,99 @@ input:disabled + .toggle-slider                   { opacity: 0.5; cursor: not-al
 .sch-time  { font-size: 0.85rem; font-weight: 600; color: var(--text); margin-top: 2px; }
 .sch-days  { font-size: 0.72rem; color: var(--text-muted); margin-top: 1px; }
 
+/* Schedule card actions */
+.sch-actions {
+    display: flex; gap: 8px; margin-top: 12px;
+    padding-top: 12px; border-top: 1px solid var(--gray-100);
+}
+.sch-btn {
+    flex: 1; padding: 6px 0; font-size: 0.8rem; font-weight: 600;
+    border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center; gap: 4px;
+    background: var(--surface); color: var(--text-muted);
+    border: 1px solid var(--border); transition: all 0.2s;
+}
+.sch-btn:active { background: var(--gray-100); }
+.sch-btn.edit:active { color: var(--blue-500); border-color: var(--blue-100); background: var(--blue-50); }
+.sch-btn.delete:active { color: var(--red-500); border-color: var(--red-100); background: var(--red-50); }
+
+/* Modal */
+.modal {
+    position: fixed; inset: 0; z-index: 2000;
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+    opacity: 1; transition: opacity 0.3s;
+}
+.modal.hidden {
+    opacity: 0; pointer-events: none;
+}
+.modal-bg-overlay {
+    position: absolute; inset: 0; background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(4px);
+}
+.modal-card {
+    position: relative; background: var(--bg);
+    width: 100%; max-width: 400px;
+    border-radius: var(--radius-xl); box-shadow: var(--shadow-lg);
+    transform: translateY(0) scale(1);
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    overflow: hidden;
+}
+.modal.hidden .modal-card {
+    transform: translateY(20px) scale(0.95);
+}
+.modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+}
+.modal-header h3 { font-size: 1.15rem; font-weight: 700; margin: 0; }
+.modal-body { padding: 20px; }
+
+/* Forms in Modal */
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; }
+.form-row { display: flex; gap: 12px; }
+.form-row .form-group { flex: 1; }
+.input-wrap {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface); border: 1.5px solid var(--border);
+    border-radius: var(--radius-md); padding: 0 12px; height: 48px;
+    transition: border-color 0.2s;
+}
+.input-wrap:focus-within { border-color: var(--green-500); background: white; }
+.input-wrap .input-icon { color: var(--gray-400); font-size: 20px; }
+.input-wrap .form-input {
+    flex: 1; height: 100%; width: 100%;
+    font-size: 0.95rem; color: var(--text); background: transparent;
+}
+select.form-input { appearance: none; cursor: pointer; }
+
+/* Day Picker */
+.day-picker { display: flex; justify-content: space-between; gap: 6px; }
+.day-btn {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--surface); border: 1.5px solid var(--border);
+    font-size: 0.8rem; font-weight: 600; color: var(--text-muted);
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s;
+}
+.day-btn.active {
+    background: var(--green-50); border-color: var(--green-500);
+    color: var(--green-700);
+}
+
+/* Disabled schedule card */
+.schedule-card.sch-disabled { opacity: 0.55; }
+
+/* Empty state */
+.sch-empty {
+    text-align: center; padding: 48px 20px;
+    color: var(--text-muted);
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.sch-empty .material-symbols-outlined { font-size: 48px; opacity: 0.4; }
+.sch-empty p { font-size: 0.9rem; line-height: 1.6; }
+
 .floating-btn {
     position: fixed;
     bottom: calc(var(--nav-height) + var(--safe-bottom) + 16px);

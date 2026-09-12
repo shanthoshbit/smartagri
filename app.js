@@ -7,7 +7,7 @@
 import { initializeApp }                       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
                                                 from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getDatabase, ref, onValue, set, update }
+import { getDatabase, ref, onValue, set, update, push, remove }
                                                 from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 /* ──────────────────────────────────────────
@@ -44,7 +44,6 @@ const state = {
     timerIntervalId:   null,
     timerEndTime:      0,
     timerDuration:     0,
-    ignorePumpToggle:  false,
     appInitialized:    false,
     pumpRunSeconds:    0,       // tracks seconds pump was ON today
     pumpRunIntervalId: null,
@@ -421,11 +420,9 @@ function syncDeviceUI(key, on) {
     const { mini: miniCard, large: largeCard } = cards[key] ?? {};
 
     if (mini  && mini.checked  !== on) {
-        if (key === "pump") state.ignorePumpToggle = true;
         mini.checked = on;
     }
     if (large && large.checked !== on) {
-        if (key === "pump") state.ignorePumpToggle = true;
         large.checked = on;
     }
     if (miniCard)  miniCard.classList.toggle("active", on);
@@ -471,7 +468,6 @@ function bindToggles() {
 
     // Pump (has mode + timer awareness)
     const handlePump = async (e) => {
-        if (state.ignorePumpToggle) { state.ignorePumpToggle = false; return; }
         const el = e.target;
         const on = el.checked;
 
@@ -484,7 +480,7 @@ function bindToggles() {
                     await update(ref(db, "agriculture/waterPump/timer"), { enabled: false, startTime: 0, endTime: 0, duration: 0 });
                 }
             },
-            () => { state.ignorePumpToggle = true; el.checked = !on; }
+            () => { el.checked = !on; }
         );
         if (ok) showToast(`Water Pump turned ${on ? "ON" : "OFF"}`);
     };
@@ -647,8 +643,249 @@ togglePwdBtn?.addEventListener("click", () => {
 logoutBtn?.addEventListener("click", () => {
     stopCountdown();
     stopPumpRunTracker();
+    if (scheduleEngineInterval) {
+        clearInterval(scheduleEngineInterval);
+        scheduleEngineInterval = null;
+    }
+    window._schedSnap = {};
     signOut(auth);
 });
+
+/* ──────────────────────────────────────────
+   SCHEDULE FEATURE
+────────────────────────────────────────── */
+const scheduleModal   = $("schedule-modal");
+const schForm         = $("sch-form");
+const schIdInput      = $("sch-id");
+const schDevice       = $("sch-device");
+const schTime         = $("sch-time");
+const schDuration     = $("sch-duration");
+const schDayBtns      = document.querySelectorAll(".day-btn");
+const schModalTitle   = $("sch-modal-title");
+const btnAddSchedule  = $("btn-add-schedule");
+const btnCloseSchModal= $("btn-close-sch-modal");
+const schModalOverlay = $("sch-modal-overlay");
+const scheduleList    = $("schedule-list");
+
+const DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const DEVICE_LABELS = {
+    valve1: "Zone 1",
+    valve2: "Zone 2",
+    valve3: "Zone 3",
+    pump:   "Water Pump",
+};
+const DEVICE_ICONS = {
+    valve1: "water_drop",
+    valve2: "water_drop",
+    valve3: "water_drop",
+    pump:   "water",
+};
+
+let scheduleEngineInterval = null;
+
+/* Open/Close Modal */
+function openSchModal(editData = null) {
+    schModalTitle.textContent = editData ? "Edit Schedule" : "Add Schedule";
+    schIdInput.value    = editData?.id      ?? "";
+    schDevice.value     = editData?.device  ?? "valve1";
+    schTime.value       = editData?.time    ?? "";
+    schDuration.value   = editData?.duration?? "";
+    // Reset day selection
+    schDayBtns.forEach(b => b.classList.toggle("active", editData ? editData.days.includes(Number(b.dataset.day)) : false));
+    scheduleModal.classList.remove("hidden");
+}
+
+function closeSchModal() {
+    scheduleModal.classList.add("hidden");
+    schForm.reset();
+    schDayBtns.forEach(b => b.classList.remove("active"));
+}
+
+btnAddSchedule ?.addEventListener("click", () => openSchModal());
+btnCloseSchModal?.addEventListener("click", closeSchModal);
+schModalOverlay ?.addEventListener("click", closeSchModal);
+
+/* Day button toggles */
+schDayBtns.forEach(btn => {
+    btn.addEventListener("click", () => btn.classList.toggle("active"));
+});
+
+/* Get selected days */
+function getSelectedDays() {
+    return Array.from(schDayBtns)
+        .filter(b => b.classList.contains("active"))
+        .map(b => Number(b.dataset.day));
+}
+
+/* Format time HH:MM → 12h string */
+function fmtTime12(t) {
+    if (!t) return "--:--";
+    const [hh, mm] = t.split(":");
+    const h = parseInt(hh, 10);
+    const ampm = h >= 12 ? "PM" : "AM";
+    const h12  = h % 12 || 12;
+    return `${h12}:${mm} ${ampm}`;
+}
+
+/* Format end time from start + duration */
+function fmtEndTime12(startTime, durationMins) {
+    if (!startTime) return "--:--";
+    const [hh, mm] = startTime.split(":").map(Number);
+    const totalMins = hh * 60 + mm + durationMins;
+    const eh = Math.floor(totalMins / 60) % 24;
+    const em = totalMins % 60;
+    return fmtTime12(`${String(eh).padStart(2,"0")}:${String(em).padStart(2,"0")}`);
+}
+
+/* Render schedule list from Firebase data */
+function renderSchedules(schedulesObj) {
+    if (!scheduleList) return;
+    if (!schedulesObj || Object.keys(schedulesObj).length === 0) {
+        scheduleList.innerHTML = `
+            <div class="sch-empty">
+                <span class="material-symbols-outlined">calendar_month</span>
+                <p>No schedules yet.<br>Tap <strong>Add Schedule</strong> to create one.</p>
+            </div>`;
+        return;
+    }
+    scheduleList.innerHTML = Object.entries(schedulesObj).map(([id, s]) => {
+        const icon    = DEVICE_ICONS[s.device] ?? "timer";
+        const label   = DEVICE_LABELS[s.device] ?? s.device;
+        const start12 = fmtTime12(s.time);
+        const end12   = fmtEndTime12(s.time, s.duration);
+        const dayStr  = s.days && s.days.length > 0
+            ? (s.days.length === 7 ? "Daily" : s.days.map(d => DAY_NAMES[d]).join(", "))
+            : "No days set";
+        const enabled = s.enabled !== false;
+        return `
+        <div class="schedule-card ${enabled ? "" : "sch-disabled"}" data-sch-id="${id}">
+            <div class="sch-top">
+                <div class="sch-icon blue">
+                    <span class="material-symbols-outlined">${icon}</span>
+                </div>
+                <div class="sch-info">
+                    <h3>${label}</h3>
+                    <span class="sch-time">${start12} – ${end12}</span>
+                    <span class="sch-days">${dayStr} · ${s.duration} min</span>
+                </div>
+                <label class="toggle-switch" aria-label="Toggle schedule">
+                    <input type="checkbox" class="sch-enable-toggle" data-id="${id}" ${enabled ? "checked" : ""}>
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+            <div class="sch-actions">
+                <button class="sch-btn edit" data-id="${id}">
+                    <span class="material-symbols-outlined" style="font-size:16px">edit</span> Edit
+                </button>
+                <button class="sch-btn delete" data-id="${id}">
+                    <span class="material-symbols-outlined" style="font-size:16px">delete</span> Delete
+                </button>
+            </div>
+        </div>`;
+    }).join("");
+
+    /* Bind schedule card actions */
+    scheduleList.querySelectorAll(".sch-enable-toggle").forEach(chk => {
+        chk.addEventListener("change", async () => {
+            const id = chk.dataset.id;
+            await safeWrite(() => update(ref(db, `agriculture/schedules/${id}`), { enabled: chk.checked }));
+        });
+    });
+    scheduleList.querySelectorAll(".sch-btn.edit").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const id = btn.dataset.id;
+            const s  = schedulesObj[id];
+            openSchModal({ id, ...s });
+        });
+    });
+    scheduleList.querySelectorAll(".sch-btn.delete").forEach(btn => {
+        btn.addEventListener("click", async () => {
+            const id = btn.dataset.id;
+            const ok = await safeWrite(() => remove(ref(db, `agriculture/schedules/${id}`)));
+            if (ok) showToast("Schedule deleted");
+        });
+    });
+}
+
+/* Save (create or update) schedule */
+schForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const days = getSelectedDays();
+    if (days.length === 0) { showToast("Select at least one day", "error"); return; }
+    if (!schTime.value)    { showToast("Set a start time", "error"); return; }
+    if (!schDuration.value || Number(schDuration.value) < 1) { showToast("Set a duration", "error"); return; }
+
+    const id = schIdInput.value;
+    const payload = {
+        device:   schDevice.value,
+        time:     schTime.value,
+        duration: Number(schDuration.value),
+        days,
+        enabled:  true,
+    };
+
+    let ok;
+    if (id) {
+        ok = await safeWrite(() => update(ref(db, `agriculture/schedules/${id}`), payload));
+    } else {
+        ok = await safeWrite(() => push(ref(db, "agriculture/schedules"), payload));
+    }
+    if (ok) {
+        closeSchModal();
+        showToast(id ? "Schedule updated" : "Schedule added");
+    }
+});
+
+/* Listen for schedule changes */
+function startScheduleListener() {
+    onValue(ref(db, "agriculture/schedules"), snap => {
+        renderSchedules(snap.val());
+    });
+}
+
+/* Schedule engine – runs every minute, triggers device ON/OFF */
+function startScheduleEngine() {
+    if (scheduleEngineInterval) return;
+    scheduleEngineInterval = setInterval(async () => {
+        if (!state.firebaseConnected || !state.esp32Online) return;
+        const now  = new Date();
+        const day  = now.getDay(); // 0=Sun
+        const hh   = String(now.getHours()).padStart(2, "0");
+        const mm   = String(now.getMinutes()).padStart(2, "0");
+        const hhmm = `${hh}:${mm}`;
+        // Fetch current schedules snapshot – we already have it via listener
+        // but for safety use onValue snapshot cached via global
+        if (!window._schedSnap) return;
+        Object.entries(window._schedSnap).forEach(async ([id, s]) => {
+            if (!s.enabled) return;
+            if (!s.days || !s.days.includes(day)) return;
+            if (s.time !== hhmm) return;
+            // Trigger the device ON
+            const path = s.device === "pump"
+                ? "agriculture/waterPump"
+                : `agriculture/${PATHS[s.device]}`;
+            if (s.device === "pump") {
+                const durMs  = s.duration * 60 * 1000;
+                const nowMs  = Date.now();
+                await update(ref(db, path), { state: true, mode: "timer" });
+                await update(ref(db, `${path}/timer`), { enabled: true, startTime: nowMs, endTime: nowMs + durMs, duration: s.duration * 60 });
+            } else {
+                await set(ref(db, `${path}/state`), true);
+                // Auto-off after duration
+                setTimeout(() => set(ref(db, `${path}/state`), false), s.duration * 60 * 1000);
+            }
+            showToast(`Schedule triggered: ${DEVICE_LABELS[s.device] ?? s.device}`, "info");
+        });
+    }, 60_000);
+}
+
+/* Cache schedules snapshot globally for engine */
+function startScheduleListenerWithCache() {
+    onValue(ref(db, "agriculture/schedules"), snap => {
+        window._schedSnap = snap.val() ?? {};
+        renderSchedules(snap.val());
+    });
+}
 
 /* ──────────────────────────────────────────
    SETTINGS ROW TAPS (friendly feedback)
@@ -675,6 +912,8 @@ onAuthStateChanged(auth, user => {
             state.appInitialized = true;
             bindToggles();
             startListeners();
+            startScheduleListenerWithCache();
+            startScheduleEngine();
         }
     } else {
         elLoading.classList.add("fade-out");

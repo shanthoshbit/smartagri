@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="description" content="SmartAgri – Professional ESP32 Agriculture IoT Automation Dashboard." />
-    <meta name="theme-color" content="#ffffff" />
+    <meta name="theme-color" content="#16a34a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>SmartAgri - IoT for Smart Farming</title>
@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
-    <!-- Material Symbols Outlined -->
+    <!-- Material Symbols -->
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
 
     <link rel="stylesheet" href="style.css" />
@@ -27,38 +27,46 @@
     <!-- ═══════════════════ LOADING SCREEN ═══════════════════ -->
     <div id="loading-screen" class="loading-screen">
         <div class="loading-content">
-            <span class="material-symbols-outlined loading-icon">eco</span>
+            <div class="loading-logo-wrap">
+                <img src="assets/smartagri.jpg" alt="SmartAgri Logo" class="loading-logo-img" onerror="this.style.display='none'" />
+                <span class="material-symbols-outlined loading-icon" id="loading-icon-fallback">eco</span>
+            </div>
             <h1 class="loading-brand">SmartAgri</h1>
+            <p class="loading-tagline">IoT for Smart Farming</p>
             <div class="spinner"></div>
         </div>
     </div>
 
     <!-- ═══════════════════ LOGIN SCREEN ═══════════════════ -->
     <div id="login-screen" class="login-screen hidden">
+        <div class="login-bg-overlay"></div>
         <div class="login-card">
             <div class="login-header">
-                <span class="material-symbols-outlined login-logo-icon">eco</span>
+                <div class="login-logo-wrap">
+                    <img src="assets/smartagri.jpg" alt="SmartAgri" class="login-logo-img" onerror="this.style.display='none';document.getElementById('login-logo-fallback').style.display='block'" />
+                    <span class="material-symbols-outlined login-logo-icon" id="login-logo-fallback" style="display:none">eco</span>
+                </div>
                 <h1 class="login-title">SmartAgri</h1>
-                <p class="login-subtitle">Smart Farming</p>
+                <p class="login-subtitle">Smarter Farming · Brighter Tomorrow</p>
             </div>
 
             <form id="login-form" class="login-form" novalidate>
-                <div class="input-group">
+                <div class="input-group" id="ig-email">
                     <span class="material-symbols-outlined input-icon">mail</span>
-                    <input type="email" id="login-email" class="form-input" placeholder="Email" autocomplete="email" required />
+                    <input type="email" id="login-email" class="form-input" placeholder="Email address" autocomplete="email" required />
                 </div>
-                <div class="input-group">
+                <div class="input-group" id="ig-password">
                     <span class="material-symbols-outlined input-icon">lock</span>
                     <input type="password" id="login-password" class="form-input" placeholder="Password" autocomplete="current-password" required />
-                    <button type="button" id="toggle-password" class="icon-btn" aria-label="Toggle password">
-                        <span class="material-symbols-outlined">visibility</span>
+                    <button type="button" id="toggle-password" class="icon-btn" aria-label="Toggle password visibility">
+                        <span class="material-symbols-outlined" id="pwd-eye-icon">visibility</span>
                     </button>
                 </div>
 
                 <div id="login-error" class="error-msg hidden" role="alert"></div>
 
                 <button type="submit" id="login-btn" class="btn-primary">
-                    <span class="btn-text">Login</span>
+                    <span class="btn-text">Sign In</span>
                     <div class="btn-spinner hidden"></div>
                 </button>
             </form>
@@ -70,30 +78,34 @@
 
         <!-- HEADER -->
         <header class="app-header">
-            <button class="icon-btn" aria-label="Menu">
+            <button class="icon-btn" aria-label="Menu" id="btn-menu">
                 <span class="material-symbols-outlined">menu</span>
             </button>
             <div class="header-brand">
-                <span class="material-symbols-outlined brand-icon">eco</span>
+                <div class="brand-logo-wrap">
+                    <img src="assets/smartagri.jpg" alt="SmartAgri" class="brand-logo-img" onerror="this.style.display='none';document.getElementById('brand-icon-fallback').style.display='block'" />
+                    <span class="material-symbols-outlined brand-icon" id="brand-icon-fallback" style="display:none">eco</span>
+                </div>
                 <div class="brand-text">
                     <span class="brand-title">SmartAgri</span>
                     <span class="brand-sub">IoT for Smart Farming</span>
                 </div>
             </div>
-            <button class="icon-btn" aria-label="Notifications">
+            <button class="icon-btn notif-btn" aria-label="Notifications" id="btn-notif">
                 <span class="material-symbols-outlined">notifications</span>
-                <span class="badge notification-badge"></span>
+                <span class="notif-badge hidden" id="notif-badge"></span>
             </button>
         </header>
 
-        <!-- MAIN CONTENT AREA (Scrollable) -->
+        <!-- MAIN CONTENT AREA -->
         <main class="app-main">
-            
+
             <!-- ====== HOME SCREEN ====== -->
             <section id="screen-home" class="screen active">
-                
-                <!-- Farm Summary Hero -->
-                <div class="hero-card">
+
+                <!-- Farm Hero Card with real image -->
+                <div class="hero-card" id="hero-card">
+                    <img src="assets/natural senary.png" alt="Farm Field" class="hero-bg-img" />
                     <div class="hero-overlay"></div>
                     <div class="hero-content">
                         <div class="hero-top">
@@ -102,21 +114,41 @@
                         </div>
                         <div class="hero-weather">
                             <span class="material-symbols-outlined weather-icon">light_mode</span>
-                            <span class="weather-temp">32°C</span>
+                            <span class="weather-temp" id="hero-temp">32°C</span>
                         </div>
-                        <span class="weather-desc">Clear Sky</span>
+                        <span class="weather-desc" id="hero-desc">Clear Sky</span>
                     </div>
                 </div>
 
-                <!-- Connection Status Compact -->
+                <!-- Sensor Metrics -->
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <span class="material-symbols-outlined metric-icon blue">water_drop</span>
+                        <span class="metric-val" id="m-humidity">65%</span>
+                        <span class="metric-lbl">Humidity</span>
+                    </div>
+                    <div class="metric-card">
+                        <span class="material-symbols-outlined metric-icon green">grass</span>
+                        <span class="metric-val" id="m-soil">780 ppm</span>
+                        <span class="metric-lbl">Soil Moisture</span>
+                    </div>
+                    <div class="metric-card">
+                        <span class="material-symbols-outlined metric-icon amber">wb_sunny</span>
+                        <span class="metric-val" id="m-light">65,000 lx</span>
+                        <span class="metric-lbl">Light Intensity</span>
+                    </div>
+                </div>
+
+                <!-- Connection Status -->
                 <div class="status-bar">
                     <div class="status-item">
                         <span class="status-label">Firebase</span>
                         <div id="home-fb-status" class="status-indicator">
                             <span class="status-dot"></span>
-                            <span class="status-text">Connecting</span>
+                            <span class="status-text">Connecting…</span>
                         </div>
                     </div>
+                    <div class="status-divider"></div>
                     <div class="status-item">
                         <span class="status-label">ESP32</span>
                         <div id="home-esp-status" class="status-indicator">
@@ -126,90 +158,112 @@
                     </div>
                 </div>
 
+                <!-- Offline Warning -->
                 <div id="offline-warning" class="alert-box error hidden">
                     <span class="material-symbols-outlined alert-icon">wifi_off</span>
-                    <span>ESP32 Offline. Controls disabled.</span>
+                    <span>ESP32 offline — controls disabled</span>
                 </div>
 
-                <!-- Key Metrics (Placeholders since DB doesn't have real sensor values yet) -->
-                <div class="metrics-grid">
-                    <div class="metric-card">
-                        <span class="material-symbols-outlined metric-icon blue">water_drop</span>
-                        <span class="metric-val">65%</span>
-                        <span class="metric-lbl">Humidity</span>
-                    </div>
-                    <div class="metric-card">
-                        <span class="material-symbols-outlined metric-icon green">psychiatry</span>
-                        <span class="metric-val">780 ppm</span>
-                        <span class="metric-lbl">Soil Moisture</span>
-                    </div>
-                    <div class="metric-card">
-                        <span class="material-symbols-outlined metric-icon amber">wb_sunny</span>
-                        <span class="metric-val">65,000 lx</span>
-                        <span class="metric-lbl">Light</span>
-                    </div>
-                </div>
-
-                <!-- Quick Devices -->
+                <!-- Devices Quick Grid -->
                 <div class="section-header">
                     <h2>Devices</h2>
-                    <button class="text-btn" data-nav="control">See All &rsaquo;</button>
+                    <button class="text-btn" data-nav="control">See All ›</button>
                 </div>
-                
+
                 <div class="devices-grid">
-                    <!-- Pump Mini -->
+                    <!-- Water Pump Mini -->
                     <div class="device-card-mini" id="mini-card-pump">
-                        <div class="dmini-icon-wrap blue"><span class="material-symbols-outlined">water_pump</span></div>
+                        <div class="dmini-img-wrap">
+                            <img src="assets/water-pump.png" alt="Water Pump" class="dmini-img" />
+                        </div>
                         <div class="dmini-info">
                             <span class="dmini-name">Water Pump</span>
                             <span class="dmini-gpio">GPIO 16</span>
                         </div>
-                        <label class="toggle-switch">
+                        <label class="toggle-switch" aria-label="Toggle Water Pump">
                             <input type="checkbox" id="mini-toggle-pump">
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
                     <!-- Valve 1 Mini -->
                     <div class="device-card-mini" id="mini-card-valve1">
-                        <div class="dmini-icon-wrap gray"><span class="material-symbols-outlined">valve</span></div>
+                        <div class="dmini-img-wrap">
+                            <img src="assets/solenoid-valve.jpg" alt="Valve 1" class="dmini-img" />
+                        </div>
                         <div class="dmini-info">
                             <span class="dmini-name">Valve 1</span>
                             <span class="dmini-gpio">GPIO 17</span>
                         </div>
-                        <label class="toggle-switch">
+                        <label class="toggle-switch" aria-label="Toggle Valve 1">
                             <input type="checkbox" id="mini-toggle-valve1">
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
                     <!-- Valve 2 Mini -->
                     <div class="device-card-mini" id="mini-card-valve2">
-                        <div class="dmini-icon-wrap gray"><span class="material-symbols-outlined">valve</span></div>
+                        <div class="dmini-img-wrap">
+                            <img src="assets/solenoid-valve.jpg" alt="Valve 2" class="dmini-img" />
+                        </div>
                         <div class="dmini-info">
                             <span class="dmini-name">Valve 2</span>
                             <span class="dmini-gpio">GPIO 18</span>
                         </div>
-                        <label class="toggle-switch">
+                        <label class="toggle-switch" aria-label="Toggle Valve 2">
                             <input type="checkbox" id="mini-toggle-valve2">
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
                     <!-- Valve 3 Mini -->
                     <div class="device-card-mini" id="mini-card-valve3">
-                        <div class="dmini-icon-wrap gray"><span class="material-symbols-outlined">valve</span></div>
+                        <div class="dmini-img-wrap">
+                            <img src="assets/solenoid-valve.jpg" alt="Valve 3" class="dmini-img" />
+                        </div>
                         <div class="dmini-info">
                             <span class="dmini-name">Valve 3</span>
                             <span class="dmini-gpio">GPIO 19</span>
                         </div>
-                        <label class="toggle-switch">
+                        <label class="toggle-switch" aria-label="Toggle Valve 3">
                             <input type="checkbox" id="mini-toggle-valve3">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <!-- Grow Light Mini -->
+                    <div class="device-card-mini" id="mini-card-light">
+                        <div class="dmini-img-wrap">
+                            <img src="assets/agri-light.jpg" alt="Grow Light" class="dmini-img" />
+                        </div>
+                        <div class="dmini-info">
+                            <span class="dmini-name">Grow Light</span>
+                            <span class="dmini-gpio">GPIO 25</span>
+                        </div>
+                        <label class="toggle-switch" aria-label="Toggle Grow Light">
+                            <input type="checkbox" id="mini-toggle-light">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <!-- Exhaust Fan Mini -->
+                    <div class="device-card-mini" id="mini-card-fan">
+                        <div class="dmini-img-wrap">
+                            <img src="assets/farm-fan.jpg" alt="Exhaust Fan" class="dmini-img" />
+                        </div>
+                        <div class="dmini-info">
+                            <span class="dmini-name">Exhaust Fan</span>
+                            <span class="dmini-gpio">GPIO 26</span>
+                        </div>
+                        <label class="toggle-switch" aria-label="Toggle Exhaust Fan">
+                            <input type="checkbox" id="mini-toggle-fan">
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
                 </div>
 
                 <div class="quick-actions">
-                    <button id="btn-all-on" class="btn-secondary">Turn All ON</button>
-                    <button id="btn-all-off" class="btn-secondary">Turn All OFF</button>
+                    <button id="btn-all-on" class="btn-secondary">
+                        <span class="material-symbols-outlined">power</span> All ON
+                    </button>
+                    <button id="btn-all-off" class="btn-secondary danger">
+                        <span class="material-symbols-outlined">power_off</span> All OFF
+                    </button>
                 </div>
             </section>
 
@@ -220,27 +274,53 @@
                 </div>
 
                 <div class="control-list">
-                    
-                    <!-- Water Pump Card (Advanced) -->
+
+                    <!-- Water Pump Card -->
                     <div class="device-card-large" id="card-pump">
+                        <div class="card-device-img-wrap">
+                            <img src="assets/water-pump.png" alt="Water Pump" class="card-device-img pump-img" />
+                        </div>
                         <div class="card-large-top">
-                            <div class="dlarge-icon blue">
-                                <span class="material-symbols-outlined">water_pump</span>
-                            </div>
                             <div class="dlarge-info">
                                 <h3>Water Pump</h3>
+                                <span class="card-desc-sub">Main water supply for irrigation</span>
                                 <span class="badge-gpio">GPIO 16</span>
                             </div>
-                            <label class="toggle-switch large">
+                            <label class="toggle-switch large" aria-label="Toggle Water Pump">
                                 <input type="checkbox" id="toggle-pump">
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        
+
                         <div class="pump-controls">
                             <div class="pump-mode-toggle">
                                 <button class="mode-btn active" id="btn-mode-manual">Manual</button>
-                                <button class="mode-btn" id="btn-mode-timer">Timer</button>
+                                <button class="mode-btn" id="btn-mode-timer">Auto</button>
+                            </div>
+
+                            <!-- Pump Stats Row -->
+                            <div class="pump-stats-row" id="pump-stats-row">
+                                <div class="pump-stat">
+                                    <span class="material-symbols-outlined pump-stat-icon amber">bolt</span>
+                                    <div>
+                                        <span class="pump-stat-lbl">Power</span>
+                                        <span class="pump-stat-val" id="pump-power-status">OFF</span>
+                                    </div>
+                                </div>
+                                <div class="pump-stat">
+                                    <span class="material-symbols-outlined pump-stat-icon gray">schedule</span>
+                                    <div>
+                                        <span class="pump-stat-lbl">Run Time Today</span>
+                                        <span class="pump-stat-val" id="pump-runtime">0 h 0 m</span>
+                                    </div>
+                                </div>
+                                <div class="pump-stat">
+                                    <span class="material-symbols-outlined pump-stat-icon blue">water_drop</span>
+                                    <div>
+                                        <span class="pump-stat-lbl">Water Usage (Est.)</span>
+                                        <span class="pump-stat-val" id="pump-water-usage">0 Liters</span>
+                                    </div>
+                                </div>
                             </div>
 
                             <!-- Timer View -->
@@ -255,7 +335,9 @@
                                     <div class="progress-bg">
                                         <div id="pump-progress" class="progress-fill"></div>
                                     </div>
-                                    <button id="btn-stop-timer" class="btn-secondary danger full-width mt-10">Stop Pump</button>
+                                    <button id="btn-stop-timer" class="btn-secondary danger full-width mt-10">
+                                        <span class="material-symbols-outlined">stop_circle</span> Stop Pump
+                                    </button>
                                 </div>
 
                                 <!-- Timer Setup -->
@@ -269,11 +351,13 @@
                                         <button class="btn-preset" data-min="60">1h</button>
                                     </div>
                                     <div class="custom-time">
-                                        <input type="number" id="t-hr" placeholder="0" min="0" max="23"> <span>h</span>
-                                        <input type="number" id="t-min" placeholder="0" min="0" max="59"> <span>m</span>
-                                        <input type="number" id="t-sec" placeholder="0" min="0" max="59"> <span>s</span>
+                                        <input type="number" id="t-hr" placeholder="0" min="0" max="23" aria-label="Hours"> <span>h</span>
+                                        <input type="number" id="t-min" placeholder="0" min="0" max="59" aria-label="Minutes"> <span>m</span>
+                                        <input type="number" id="t-sec" placeholder="0" min="0" max="59" aria-label="Seconds"> <span>s</span>
                                     </div>
-                                    <button id="btn-start-timer" class="btn-primary full-width mt-10">Start Timer</button>
+                                    <button id="btn-start-timer" class="btn-primary full-width mt-10">
+                                        <span class="material-symbols-outlined">timer</span> Schedule Timer
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -281,82 +365,143 @@
 
                     <!-- Valve 1 -->
                     <div class="device-card-large" id="card-valve1">
+                        <div class="card-device-img-wrap">
+                            <img src="assets/solenoid-valve.jpg" alt="Valve 1" class="card-device-img valve-img" />
+                        </div>
                         <div class="card-large-top">
-                            <div class="dlarge-icon gray"><span class="material-symbols-outlined">valve</span></div>
                             <div class="dlarge-info">
                                 <h3>Valve 1</h3>
+                                <span class="card-desc-sub">Irrigation Zone 1</span>
                                 <span class="badge-gpio">GPIO 17</span>
                             </div>
-                            <label class="toggle-switch large">
+                            <label class="toggle-switch large" aria-label="Toggle Valve 1">
                                 <input type="checkbox" id="toggle-valve1">
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        <div class="card-large-desc">Zone 1</div>
+                        <div class="card-detail-row">
+                            <div class="card-detail-item">
+                                <span class="material-symbols-outlined card-detail-icon green">location_on</span>
+                                <div><span class="card-detail-lbl">Zone</span><span class="card-detail-val">Field Section A</span></div>
+                            </div>
+                            <div class="card-detail-item">
+                                <span class="material-symbols-outlined card-detail-icon green">grass</span>
+                                <div><span class="card-detail-lbl">Crop Type</span><span class="card-detail-val">Vegetables</span></div>
+                            </div>
+                            <div class="card-detail-item">
+                                <span class="material-symbols-outlined card-detail-icon blue">water_drop</span>
+                                <div><span class="card-detail-lbl">Irrigation Time</span><span class="card-detail-val">Not Scheduled</span></div>
+                            </div>
+                        </div>
+                        <button class="btn-primary full-width mt-10" onclick="document.querySelector('[data-target=schedule]').click()">
+                            <span class="material-symbols-outlined">calendar_month</span> Set Schedule
+                        </button>
                     </div>
 
                     <!-- Valve 2 -->
                     <div class="device-card-large" id="card-valve2">
+                        <div class="card-device-img-wrap">
+                            <img src="assets/solenoid-valve.jpg" alt="Valve 2" class="card-device-img valve-img" />
+                        </div>
                         <div class="card-large-top">
-                            <div class="dlarge-icon gray"><span class="material-symbols-outlined">valve</span></div>
                             <div class="dlarge-info">
                                 <h3>Valve 2</h3>
+                                <span class="card-desc-sub">Irrigation Zone 2</span>
                                 <span class="badge-gpio">GPIO 18</span>
                             </div>
-                            <label class="toggle-switch large">
+                            <label class="toggle-switch large" aria-label="Toggle Valve 2">
                                 <input type="checkbox" id="toggle-valve2">
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        <div class="card-large-desc">Zone 2</div>
+                        <div class="card-detail-row">
+                            <div class="card-detail-item">
+                                <span class="material-symbols-outlined card-detail-icon green">location_on</span>
+                                <div><span class="card-detail-lbl">Zone</span><span class="card-detail-val">Field Section B</span></div>
+                            </div>
+                            <div class="card-detail-item">
+                                <span class="material-symbols-outlined card-detail-icon green">grass</span>
+                                <div><span class="card-detail-lbl">Crop Type</span><span class="card-detail-val">Grains</span></div>
+                            </div>
+                            <div class="card-detail-item">
+                                <span class="material-symbols-outlined card-detail-icon blue">water_drop</span>
+                                <div><span class="card-detail-lbl">Irrigation Time</span><span class="card-detail-val">Not Scheduled</span></div>
+                            </div>
+                        </div>
+                        <button class="btn-primary full-width mt-10" onclick="document.querySelector('[data-target=schedule]').click()">
+                            <span class="material-symbols-outlined">calendar_month</span> Set Schedule
+                        </button>
                     </div>
 
                     <!-- Valve 3 -->
                     <div class="device-card-large" id="card-valve3">
+                        <div class="card-device-img-wrap">
+                            <img src="assets/solenoid-valve.jpg" alt="Valve 3" class="card-device-img valve-img" />
+                        </div>
                         <div class="card-large-top">
-                            <div class="dlarge-icon gray"><span class="material-symbols-outlined">valve</span></div>
                             <div class="dlarge-info">
                                 <h3>Valve 3</h3>
+                                <span class="card-desc-sub">Irrigation Zone 3</span>
                                 <span class="badge-gpio">GPIO 19</span>
                             </div>
-                            <label class="toggle-switch large">
+                            <label class="toggle-switch large" aria-label="Toggle Valve 3">
                                 <input type="checkbox" id="toggle-valve3">
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        <div class="card-large-desc">Zone 3</div>
+                        <div class="card-detail-row">
+                            <div class="card-detail-item">
+                                <span class="material-symbols-outlined card-detail-icon green">location_on</span>
+                                <div><span class="card-detail-lbl">Zone</span><span class="card-detail-val">Field Section C</span></div>
+                            </div>
+                            <div class="card-detail-item">
+                                <span class="material-symbols-outlined card-detail-icon green">grass</span>
+                                <div><span class="card-detail-lbl">Crop Type</span><span class="card-detail-val">Fruits</span></div>
+                            </div>
+                            <div class="card-detail-item">
+                                <span class="material-symbols-outlined card-detail-icon blue">water_drop</span>
+                                <div><span class="card-detail-lbl">Irrigation Time</span><span class="card-detail-val">Not Scheduled</span></div>
+                            </div>
+                        </div>
+                        <button class="btn-primary full-width mt-10" onclick="document.querySelector('[data-target=schedule]').click()">
+                            <span class="material-symbols-outlined">calendar_month</span> Set Schedule
+                        </button>
                     </div>
 
-                    <!-- Fan -->
+                    <!-- Exhaust Fan -->
                     <div class="device-card-large" id="card-fan">
+                        <div class="card-device-img-wrap">
+                            <img src="assets/farm-fan.jpg" alt="Exhaust Fan" class="card-device-img" />
+                        </div>
                         <div class="card-large-top">
-                            <div class="dlarge-icon gray"><span class="material-symbols-outlined">mode_fan</span></div>
                             <div class="dlarge-info">
                                 <h3>Exhaust Fan</h3>
+                                <span class="card-desc-sub">Ventilation Control</span>
                                 <span class="badge-gpio">GPIO 26</span>
                             </div>
-                            <label class="toggle-switch large">
+                            <label class="toggle-switch large" aria-label="Toggle Exhaust Fan">
                                 <input type="checkbox" id="toggle-fan">
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        <div class="card-large-desc">Ventilation</div>
                     </div>
 
-                    <!-- Light -->
+                    <!-- Agriculture Light -->
                     <div class="device-card-large" id="card-light">
+                        <div class="card-device-img-wrap">
+                            <img src="assets/agri-light.jpg" alt="Agriculture Light" class="card-device-img" />
+                        </div>
                         <div class="card-large-top">
-                            <div class="dlarge-icon gray"><span class="material-symbols-outlined">lightbulb</span></div>
                             <div class="dlarge-info">
-                                <h3>Agriculture Light</h3>
+                                <h3>Grow Light</h3>
+                                <span class="card-desc-sub">Agriculture Lighting</span>
                                 <span class="badge-gpio">GPIO 25</span>
                             </div>
-                            <label class="toggle-switch large">
+                            <label class="toggle-switch large" aria-label="Toggle Grow Light">
                                 <input type="checkbox" id="toggle-light">
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        <div class="card-large-desc">Lighting</div>
                     </div>
 
                 </div>
@@ -367,18 +512,20 @@
                 <div class="screen-header">
                     <h2>Irrigation Schedule</h2>
                 </div>
-                
-                <div class="schedule-list">
+
+                <div class="schedule-list" id="schedule-list">
                     <div class="schedule-card">
                         <div class="sch-top">
-                            <div class="sch-icon blue"><span class="material-symbols-outlined">water_drop</span></div>
+                            <div class="sch-icon blue">
+                                <span class="material-symbols-outlined">water_drop</span>
+                            </div>
                             <div class="sch-info">
                                 <h3>Zone 1</h3>
-                                <span class="sch-time">06:00 AM - 06:30 AM</span>
+                                <span class="sch-time">06:00 AM – 06:30 AM</span>
                                 <span class="sch-days">Mon, Wed, Fri</span>
                             </div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" checked disabled>
+                            <label class="toggle-switch" aria-label="Toggle Zone 1 Schedule">
+                                <input type="checkbox" id="sch-toggle-zone1" checked>
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
@@ -386,21 +533,40 @@
 
                     <div class="schedule-card">
                         <div class="sch-top">
-                            <div class="sch-icon blue"><span class="material-symbols-outlined">water_drop</span></div>
+                            <div class="sch-icon blue">
+                                <span class="material-symbols-outlined">water_drop</span>
+                            </div>
                             <div class="sch-info">
                                 <h3>Zone 2</h3>
-                                <span class="sch-time">07:00 AM - 07:30 AM</span>
+                                <span class="sch-time">07:00 AM – 07:30 AM</span>
                                 <span class="sch-days">Tue, Thu, Sat</span>
                             </div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" disabled>
+                            <label class="toggle-switch" aria-label="Toggle Zone 2 Schedule">
+                                <input type="checkbox" id="sch-toggle-zone2">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="schedule-card">
+                        <div class="sch-top">
+                            <div class="sch-icon blue">
+                                <span class="material-symbols-outlined">water_drop</span>
+                            </div>
+                            <div class="sch-info">
+                                <h3>Zone 3</h3>
+                                <span class="sch-time">05:00 PM – 05:30 PM</span>
+                                <span class="sch-days">Daily</span>
+                            </div>
+                            <label class="toggle-switch" aria-label="Toggle Zone 3 Schedule">
+                                <input type="checkbox" id="sch-toggle-zone3">
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
                     </div>
                 </div>
 
-                <button class="btn-primary floating-btn">
+                <button class="btn-primary floating-btn" id="btn-add-schedule">
                     <span class="material-symbols-outlined">add</span>
                     Add Schedule
                 </button>
@@ -412,62 +578,76 @@
                     <h2>Live Monitoring</h2>
                 </div>
 
+                <!-- Sensor Cards -->
+                <div class="sensor-grid">
+                    <div class="sensor-box red-accent">
+                        <div class="sensor-head">
+                            <span class="material-symbols-outlined text-red">device_thermostat</span>
+                            <span class="s-name">Temperature</span>
+                        </div>
+                        <div class="s-val" id="mon-temp">32°C</div>
+                        <div class="s-sparkline red"></div>
+                    </div>
+                    <div class="sensor-box blue-accent">
+                        <div class="sensor-head">
+                            <span class="material-symbols-outlined text-blue">water_drop</span>
+                            <span class="s-name">Humidity</span>
+                        </div>
+                        <div class="s-val" id="mon-humidity">65%</div>
+                        <div class="s-sparkline blue"></div>
+                    </div>
+                    <div class="sensor-box green-accent">
+                        <div class="sensor-head">
+                            <span class="material-symbols-outlined text-green">grass</span>
+                            <span class="s-name">Soil Moisture</span>
+                        </div>
+                        <div class="s-val" id="mon-soil">780 ppm</div>
+                        <div class="s-sparkline green"></div>
+                    </div>
+                    <div class="sensor-box amber-accent">
+                        <div class="sensor-head">
+                            <span class="material-symbols-outlined text-amber">wb_sunny</span>
+                            <span class="s-name">Light Intensity</span>
+                        </div>
+                        <div class="s-val" id="mon-light">65,000 lx</div>
+                        <div class="s-sparkline amber"></div>
+                    </div>
+                </div>
+
+                <!-- System Status -->
+                <div class="section-header mt-20">
+                    <h3>System Status</h3>
+                    <span class="sys-overall" id="sys-overall-badge">● Online</span>
+                </div>
+
                 <div class="monitor-card system-status-list">
                     <div class="sys-item">
-                        <span class="material-symbols-outlined sys-icon">cloud</span>
+                        <span class="material-symbols-outlined sys-icon green">wifi</span>
                         <div class="sys-info">
                             <span class="sys-lbl">Firebase</span>
                         </div>
-                        <span id="mon-fb" class="sys-val badge green">Connected</span>
+                        <span id="mon-fb" class="sys-val badge gray">Connecting</span>
                     </div>
                     <div class="sys-item">
-                        <span class="material-symbols-outlined sys-icon">memory</span>
+                        <span class="material-symbols-outlined sys-icon gray">memory</span>
                         <div class="sys-info">
                             <span class="sys-lbl">ESP32</span>
                         </div>
                         <span id="mon-esp" class="sys-val badge gray">Unknown</span>
                     </div>
                     <div class="sys-item">
-                        <span class="material-symbols-outlined sys-icon">schedule</span>
+                        <span class="material-symbols-outlined sys-icon gray">schedule</span>
                         <div class="sys-info">
                             <span class="sys-lbl">Last Seen</span>
                         </div>
                         <span id="mon-last-seen" class="sys-val text">--:--:--</span>
                     </div>
-                </div>
-
-                <div class="section-header mt-20">
-                    <h3>Sensors</h3>
-                </div>
-
-                <div class="sensor-grid">
-                    <div class="sensor-box">
-                        <div class="sensor-head">
-                            <span class="material-symbols-outlined text-red">device_thermostat</span>
-                            <span class="s-name">Temperature</span>
+                    <div class="sys-item">
+                        <span class="material-symbols-outlined sys-icon gray">cloud_upload</span>
+                        <div class="sys-info">
+                            <span class="sys-lbl">Uptime</span>
                         </div>
-                        <div class="s-val">32°C</div>
-                    </div>
-                    <div class="sensor-box">
-                        <div class="sensor-head">
-                            <span class="material-symbols-outlined text-blue">water_drop</span>
-                            <span class="s-name">Humidity</span>
-                        </div>
-                        <div class="s-val">65%</div>
-                    </div>
-                    <div class="sensor-box">
-                        <div class="sensor-head">
-                            <span class="material-symbols-outlined text-green">psychiatry</span>
-                            <span class="s-name">Soil Moisture</span>
-                        </div>
-                        <div class="s-val">780 ppm</div>
-                    </div>
-                    <div class="sensor-box">
-                        <div class="sensor-head">
-                            <span class="material-symbols-outlined text-amber">wb_sunny</span>
-                            <span class="s-name">Light</span>
-                        </div>
-                        <div class="s-val">65k lx</div>
+                        <span id="mon-uptime" class="sys-val text">--</span>
                     </div>
                 </div>
             </section>
@@ -477,64 +657,77 @@
                 <div class="screen-header">
                     <h2>Settings</h2>
                 </div>
-                
+
                 <div class="settings-list">
-                    <div class="setting-item">
-                        <span class="material-symbols-outlined set-icon text-green">wifi</span>
-                        <span class="set-label">Wi-Fi & Firebase</span>
+                    <div class="setting-item" id="set-wifi" role="button" tabindex="0">
+                        <div class="set-icon-wrap green-bg">
+                            <span class="material-symbols-outlined set-icon text-green">wifi</span>
+                        </div>
+                        <span class="set-label">Wi-Fi &amp; Firebase</span>
                         <span class="material-symbols-outlined set-chevron">chevron_right</span>
                     </div>
-                    <div class="setting-item">
-                        <span class="material-symbols-outlined set-icon text-dark">memory</span>
+                    <div class="setting-item" id="set-device" role="button" tabindex="0">
+                        <div class="set-icon-wrap gray-bg">
+                            <span class="material-symbols-outlined set-icon text-dark">memory</span>
+                        </div>
                         <span class="set-label">Device Configuration</span>
                         <span class="material-symbols-outlined set-chevron">chevron_right</span>
                     </div>
-                    <div class="setting-item">
-                        <span class="material-symbols-outlined set-icon text-red">notifications</span>
+                    <div class="setting-item" id="set-notif" role="button" tabindex="0">
+                        <div class="set-icon-wrap red-bg">
+                            <span class="material-symbols-outlined set-icon text-red">notifications</span>
+                        </div>
                         <span class="set-label">Notifications</span>
                         <span class="material-symbols-outlined set-chevron">chevron_right</span>
                     </div>
-                    <div class="setting-item">
-                        <span class="material-symbols-outlined set-icon text-blue">info</span>
+                    <div class="setting-item" id="set-about" role="button" tabindex="0">
+                        <div class="set-icon-wrap blue-bg">
+                            <span class="material-symbols-outlined set-icon text-blue">info</span>
+                        </div>
                         <span class="set-label">About</span>
                         <span class="material-symbols-outlined set-chevron">chevron_right</span>
                     </div>
                 </div>
 
                 <div class="settings-footer">
-                    <span class="material-symbols-outlined sf-icon text-green">eco</span>
+                    <div class="sf-logo-wrap">
+                        <img src="assets/smartagri.jpg" alt="SmartAgri" class="sf-logo-img" onerror="this.style.display='none';document.getElementById('sf-icon-fallback').style.display='block'" />
+                        <span class="material-symbols-outlined sf-icon text-green" id="sf-icon-fallback" style="display:none">eco</span>
+                    </div>
                     <h3>SmartAgri</h3>
                     <p>Smarter Farming<br>Brighter Tomorrow</p>
-                    <button id="logout-btn" class="btn-logout mt-20">Log Out</button>
+                    <button id="logout-btn" class="btn-logout mt-20">
+                        <span class="material-symbols-outlined">logout</span> Log Out
+                    </button>
                 </div>
             </section>
 
         </main>
 
         <!-- BOTTOM NAVIGATION -->
-        <nav class="bottom-nav">
-            <button class="nav-item active" data-target="home">
+        <nav class="bottom-nav" role="navigation" aria-label="Main Navigation">
+            <button class="nav-item active" data-target="home" aria-label="Home">
                 <span class="material-symbols-outlined nav-icon">home</span>
                 <span class="nav-label">Home</span>
             </button>
-            <button class="nav-item" data-target="control">
+            <button class="nav-item" data-target="control" aria-label="Control">
                 <span class="material-symbols-outlined nav-icon">dashboard</span>
                 <span class="nav-label">Control</span>
             </button>
-            <button class="nav-item" data-target="schedule">
+            <button class="nav-item" data-target="schedule" aria-label="Schedule">
                 <span class="material-symbols-outlined nav-icon">calendar_month</span>
                 <span class="nav-label">Schedule</span>
             </button>
-            <button class="nav-item" data-target="monitor">
+            <button class="nav-item" data-target="monitor" aria-label="Monitor">
                 <span class="material-symbols-outlined nav-icon">monitoring</span>
                 <span class="nav-label">Monitor</span>
             </button>
-            <button class="nav-item" data-target="settings">
+            <button class="nav-item" data-target="settings" aria-label="Settings">
                 <span class="material-symbols-outlined nav-icon">settings</span>
                 <span class="nav-label">Settings</span>
             </button>
         </nav>
-        
+
     </div>
 
     <script type="module" src="app.js"></script>

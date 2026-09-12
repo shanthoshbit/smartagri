@@ -1,295 +1,392 @@
 /**
- * SmartAgri – app.js  v3.0 (Mobile First)
+ * SmartAgri – app.js  v4.0
  * ESP32 Agriculture Automation Dashboard
+ * Optimized: debounced writes, friendly error messages, clean state management
  */
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getDatabase, ref, onValue, set, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { initializeApp }                       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+                                                from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getDatabase, ref, onValue, set, update }
+                                                from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
+/* ──────────────────────────────────────────
+   FIREBASE CONFIG
+────────────────────────────────────────── */
 const firebaseConfig = {
-    apiKey: "AIzaSyD6y_ybBXjnSQ2uhv265U3c7rGW0V6tOA0",
-    authDomain: "smartagri-8bd16.firebaseapp.com",
-    databaseURL: "https://smartagri-8bd16-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "smartagri-8bd16",
-    storageBucket: "smartagri-8bd16.firebasestorage.app",
+    apiKey:            "AIzaSyD6y_ybBXjnSQ2uhv265U3c7rGW0V6tOA0",
+    authDomain:        "smartagri-8bd16.firebaseapp.com",
+    databaseURL:       "https://smartagri-8bd16-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId:         "smartagri-8bd16",
+    storageBucket:     "smartagri-8bd16.firebasestorage.app",
     messagingSenderId: "946746280886",
-    appId: "1:946746280886:web:efde01fbcc93b85cc78f17"
+    appId:             "1:946746280886:web:efde01fbcc93b85cc78f17"
 };
 
 const fbApp = initializeApp(firebaseConfig);
-const auth = getAuth(fbApp);
-const db = getDatabase(fbApp);
+const auth  = getAuth(fbApp);
+const db    = getDatabase(fbApp);
 
-/* ═══════════════════════════════════════════════════════════
-   DOM REFERENCES
-═══════════════════════════════════════════════════════════ */
+/* ──────────────────────────────────────────
+   DOM HELPERS
+────────────────────────────────────────── */
 const $ = id => document.getElementById(id);
+const qs = sel => document.querySelector(sel);
 
-// Screens
-const elLoading = $("loading-screen");
-const elLogin = $("login-screen");
-const elApp = $("app-screen");
+/* ──────────────────────────────────────────
+   STATE
+────────────────────────────────────────── */
+const state = {
+    firebaseConnected: false,
+    esp32Online:       false,
+    esp32LastSeen:     0,
+    esp32StartTime:    0,
+    timerIntervalId:   null,
+    timerEndTime:      0,
+    timerDuration:     0,
+    ignorePumpToggle:  false,
+    appInitialized:    false,
+    pumpRunSeconds:    0,       // tracks seconds pump was ON today
+    pumpRunIntervalId: null,
+};
 
-// Navigation
+/* Firebase paths */
+const PATHS = {
+    pump:   "waterPump",
+    valve1: "valve1",
+    valve2: "valve2",
+    valve3: "valve3",
+    light:  "light",
+    fan:    "fan",
+};
+
+/* Firebase-friendly error messages */
+const FB_ERRORS = {
+    "auth/invalid-email":        "Invalid email address.",
+    "auth/user-not-found":       "No account found with this email.",
+    "auth/wrong-password":       "Incorrect password. Please try again.",
+    "auth/too-many-requests":    "Too many attempts. Please wait a moment.",
+    "auth/network-request-failed": "Network error. Check your connection.",
+};
+
+/* ──────────────────────────────────────────
+   DOM ELEMENTS
+────────────────────────────────────────── */
+const elLoading  = $("loading-screen");
+const elLogin    = $("login-screen");
+const elApp      = $("app-screen");
+
+// Nav
 const navItems = document.querySelectorAll(".nav-item");
-const screens = document.querySelectorAll(".screen");
-const btnSeeAll = document.querySelector('[data-nav="control"]');
+const screens  = document.querySelectorAll(".screen");
 
 // Login
-const loginForm = $("login-form");
-const loginEmail = $("login-email");
-const loginPwd = $("login-password");
+const loginForm    = $("login-form");
+const loginEmail   = $("login-email");
+const loginPwd     = $("login-password");
 const togglePwdBtn = $("toggle-password");
-const loginBtn = $("login-btn");
-const loginError = $("login-error");
-const logoutBtn = $("logout-btn");
+const pwdEyeIcon   = $("pwd-eye-icon");
+const loginBtn     = $("login-btn");
+const loginError   = $("login-error");
+const logoutBtn    = $("logout-btn");
 
-// Status Indicators
-const homeFbStatus = $("home-fb-status");
-const homeEspStatus = $("home-esp-status");
+// Status
+const homeFbStatus   = $("home-fb-status");
+const homeEspStatus  = $("home-esp-status");
 const offlineWarning = $("offline-warning");
-const monFb = $("mon-fb");
-const monEsp = $("mon-esp");
-const monLastSeen = $("mon-last-seen");
+const monFb          = $("mon-fb");
+const monEsp         = $("mon-esp");
+const monLastSeen    = $("mon-last-seen");
+const monUptime      = $("mon-uptime");
+const sysOverall     = $("sys-overall-badge");
 
-// Toggles (Home Mini + Control Large)
+// Sensor displays
+const monTemp     = $("mon-temp");
+const monHumidity = $("mon-humidity");
+const monSoil     = $("mon-soil");
+const monLight    = $("mon-light");
+const mHumidity   = $("m-humidity");
+const mSoil       = $("m-soil");
+const mLight      = $("m-light");
+
+// Pump stat displays
+const pumpPowerStatus = $("pump-power-status");
+const pumpRuntime     = $("pump-runtime");
+const pumpWaterUsage  = $("pump-water-usage");
+
+// Toggles: { mini?, large }
 const toggles = {
-    pump: { mini: $("mini-toggle-pump"), large: $("toggle-pump") },
+    pump:   { mini: $("mini-toggle-pump"),   large: $("toggle-pump")   },
     valve1: { mini: $("mini-toggle-valve1"), large: $("toggle-valve1") },
     valve2: { mini: $("mini-toggle-valve2"), large: $("toggle-valve2") },
     valve3: { mini: $("mini-toggle-valve3"), large: $("toggle-valve3") },
-    light: { large: $("toggle-light") }, // No mini on home for light
-    fan: { large: $("toggle-fan") }      // No mini on home for fan
+    light:  { mini: $("mini-toggle-light"),  large: $("toggle-light")  },
+    fan:    { mini: $("mini-toggle-fan"),     large: $("toggle-fan")    },
 };
 
-// Cards styling sync
+// Cards
 const cards = {
-    pump: { mini: $("mini-card-pump"), large: $("card-pump") },
+    pump:   { mini: $("mini-card-pump"),   large: $("card-pump")   },
     valve1: { mini: $("mini-card-valve1"), large: $("card-valve1") },
     valve2: { mini: $("mini-card-valve2"), large: $("card-valve2") },
     valve3: { mini: $("mini-card-valve3"), large: $("card-valve3") },
-    light: { large: $("card-light") },
-    fan: { large: $("card-fan") }
+    light:  { mini: $("mini-card-light"),  large: $("card-light")  },
+    fan:    { mini: $("mini-card-fan"),     large: $("card-fan")    },
 };
 
-// Pump specific
-const btnModeManual = $("btn-mode-manual");
-const btnModeTimer = $("btn-mode-timer");
-const pumpTimerView = $("pump-timer-view");
+// Pump timer
+const btnModeManual      = $("btn-mode-manual");
+const btnModeTimer       = $("btn-mode-timer");
+const pumpTimerView      = $("pump-timer-view");
 const timerActiveDisplay = $("timer-active-display");
-const timerSetupDisplay = $("timer-setup-display");
-const pumpTimeRem = $("pump-time-rem");
-const pumpProgress = $("pump-progress");
-const btnStopTimer = $("btn-stop-timer");
-const btnStartTimer = $("btn-start-timer");
-const tHr = $("t-hr");
-const tMin = $("t-min");
-const tSec = $("t-sec");
-const presets = document.querySelectorAll(".btn-preset");
+const timerSetupDisplay  = $("timer-setup-display");
+const pumpTimeRem        = $("pump-time-rem");
+const pumpProgress       = $("pump-progress");
+const btnStopTimer       = $("btn-stop-timer");
+const btnStartTimer      = $("btn-start-timer");
+const tHr                = $("t-hr");
+const tMin               = $("t-min");
+const tSec               = $("t-sec");
+const presets            = document.querySelectorAll(".btn-preset");
 
-// Quick Actions
-const btnAllOn = $("btn-all-on");
+// Quick actions
+const btnAllOn  = $("btn-all-on");
 const btnAllOff = $("btn-all-off");
 
 // Toast
 const toastContainer = $("toast-container");
 
-/* ═══════════════════════════════════════════════════════════
-   STATE
-═══════════════════════════════════════════════════════════ */
-let firebaseConnected = false;
-let esp32Online = false;
-let esp32LastSeen = 0;
-let timerIntervalId = null;
-let timerEndTime = 0;
-let timerDuration = 0;
-let ignorePumpToggle = false;
-let appInitialized = false;
-
-const DEVICE_PATHS = {
-    pump: "waterPump",
-    valve1: "valve1",
-    valve2: "valve2",
-    valve3: "valve3",
-    light: "light",
-    fan: "fan",
-};
-
-/* ═══════════════════════════════════════════════════════════
-   UTILITIES
-═══════════════════════════════════════════════════════════ */
+/* ──────────────────────────────────────────
+   TOAST
+────────────────────────────────────────── */
 function showToast(msg, type = "success") {
+    const icons = { success: "check_circle", error: "error", info: "info" };
     const toast = document.createElement("div");
     toast.className = `toast toast-${type}`;
-    const icon = type === "success" ? "check_circle" : "error";
-    toast.innerHTML = `<span class="material-symbols-outlined">${icon}</span> <span>${msg}</span>`;
+    toast.innerHTML = `<span class="material-symbols-outlined">${icons[type] ?? "info"}</span><span>${msg}</span>`;
     toastContainer.appendChild(toast);
     setTimeout(() => {
-        toast.style.opacity = '0';
-        toast.style.transform = 'translateY(-20px)';
-        setTimeout(() => toast.remove(), 300);
-    }, 3000);
+        toast.classList.add("toast-fade-out");
+        setTimeout(() => toast.remove(), 320);
+    }, 3200);
 }
 
-function formatHMS(ms) {
-    const s = Math.max(0, Math.ceil(ms / 1000));
-    const m = Math.floor(s / 60);
+/* ──────────────────────────────────────────
+   FORMATTERS
+────────────────────────────────────────── */
+function fmtHMS(ms) {
+    const s   = Math.max(0, Math.ceil(ms / 1000));
+    const m   = Math.floor(s / 60);
     const sec = s % 60;
     return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }
 
-function formatTime(ts) {
+function fmtTime(ts) {
     if (!ts) return "--:--:--";
-    return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const d = new Date(ts < 10000000000 ? ts * 1000 : ts);
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-/* ═══════════════════════════════════════════════════════════
+function fmtUptime(startTs) {
+    if (!startTs) return "--";
+    const ms = Date.now() - (startTs < 10000000000 ? startTs * 1000 : startTs);
+    if (ms < 0) return "--";
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    return `${h}h ${m}m`;
+}
+
+function fmtRuntime(sec) {
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    return `${h} h ${m} m`;
+}
+
+function estWaterUsage(sec) {
+    // ~2 L/min for a typical small pump
+    return `${Math.round(sec / 60 * 2)} Liters`;
+}
+
+/* ──────────────────────────────────────────
    NAVIGATION
-═══════════════════════════════════════════════════════════ */
+────────────────────────────────────────── */
 function switchTab(targetId) {
-    navItems.forEach(item => {
-        item.classList.toggle("active", item.dataset.target === targetId);
-    });
+    navItems.forEach(item => item.classList.toggle("active", item.dataset.target === targetId));
     screens.forEach(screen => {
-        if (screen.id === `screen-${targetId}`) {
-            screen.classList.remove("hidden");
-            screen.classList.add("active");
-        } else {
-            screen.classList.add("hidden");
-            screen.classList.remove("active");
-        }
+        const match = screen.id === `screen-${targetId}`;
+        screen.classList.toggle("hidden", !match);
+        screen.classList.toggle("active", match);
     });
 }
 
-navItems.forEach(item => {
-    item.addEventListener("click", () => switchTab(item.dataset.target));
+navItems.forEach(item => item.addEventListener("click", () => switchTab(item.dataset.target)));
+
+// "See All" shortcut
+document.addEventListener("click", e => {
+    const nav = e.target.closest("[data-nav]");
+    if (nav) switchTab(nav.dataset.nav);
 });
 
-if (btnSeeAll) {
-    btnSeeAll.addEventListener("click", () => switchTab("control"));
+/* ──────────────────────────────────────────
+   SYSTEM STATUS
+────────────────────────────────────────── */
+function updateSystemStatus() {
+    const online = state.firebaseConnected && state.esp32Online;
+
+    // Home status indicators
+    setStatusIndicator(homeFbStatus, state.firebaseConnected);
+    setStatusIndicator(homeEspStatus, state.esp32Online);
+
+    // Monitor badges
+    setBadge(monFb,  state.firebaseConnected, "Connected", "Offline");
+    setBadge(monEsp, state.esp32Online,       "Online",    "Offline");
+    monLastSeen.textContent = fmtTime(state.esp32LastSeen);
+    monUptime.textContent   = fmtUptime(state.esp32StartTime);
+
+    // Overall badge
+    if (sysOverall) {
+        sysOverall.textContent = online ? "● Online" : "● Offline";
+        sysOverall.classList.toggle("offline", !online);
+    }
+
+    // Offline warning + control lock
+    offlineWarning.classList.toggle("hidden", online);
+    setControlsDisabled(!online);
 }
 
-/* ═══════════════════════════════════════════════════════════
-   SYSTEM STATUS & LOCK
-═══════════════════════════════════════════════════════════ */
-function updateSystemStatus() {
-    const isOnline = firebaseConnected && esp32Online;
-    
-    // Home Status
-    homeFbStatus.className = `status-indicator ${firebaseConnected ? 'connected' : 'offline'}`;
-    homeFbStatus.querySelector(".status-text").textContent = firebaseConnected ? "Connected" : "Offline";
-    
-    homeEspStatus.className = `status-indicator ${esp32Online ? 'connected' : 'offline'}`;
-    homeEspStatus.querySelector(".status-text").textContent = esp32Online ? "Online" : "Offline";
+function setStatusIndicator(el, isOk) {
+    el.className = `status-indicator ${isOk ? "connected" : "offline"}`;
+    el.querySelector(".status-text").textContent = isOk
+        ? (el === homeFbStatus ? "Connected" : "Online")
+        : "Offline";
+}
 
-    // Monitor Status
-    monFb.className = `sys-val badge ${firebaseConnected ? 'green' : 'red'}`;
-    monFb.textContent = firebaseConnected ? "Connected" : "Offline";
-    
-    monEsp.className = `sys-val badge ${esp32Online ? 'green' : 'red'}`;
-    monEsp.textContent = esp32Online ? "Online" : "Offline";
-    
-    monLastSeen.textContent = formatTime(esp32LastSeen);
-
-    // Lock/Unlock
-    if (isOnline) {
-        offlineWarning.classList.add("hidden");
-        setControlsDisabled(false);
-    } else {
-        offlineWarning.classList.remove("hidden");
-        setControlsDisabled(true);
-    }
+function setBadge(el, isOk, okLabel, failLabel) {
+    el.className = `sys-val badge ${isOk ? "green" : "red"}`;
+    el.textContent = isOk ? okLabel : failLabel;
 }
 
 function setControlsDisabled(disabled) {
-    Object.values(toggles).forEach(group => {
-        if(group.mini) group.mini.disabled = disabled;
-        if(group.large) group.large.disabled = disabled;
+    Object.values(toggles).forEach(({ mini, large }) => {
+        if (mini)  mini.disabled  = disabled;
+        if (large) large.disabled = disabled;
     });
-    btnStartTimer.disabled = disabled;
-    btnStopTimer.disabled = disabled;
-    btnAllOn.disabled = disabled;
-    btnAllOff.disabled = disabled;
+    [btnStartTimer, btnStopTimer, btnAllOn, btnAllOff].forEach(b => { if (b) b.disabled = disabled; });
 }
 
-/* ═══════════════════════════════════════════════════════════
-   ESP32 HEARTBEAT
-═══════════════════════════════════════════════════════════ */
+/* ──────────────────────────────────────────
+   ESP32 HEARTBEAT CHECK (every 5s)
+────────────────────────────────────────── */
+function tsToMs(ts) {
+    return ts < 10_000_000_000 ? ts * 1000 : ts;
+}
+
 function checkEsp32Online(data) {
     if (!data) return false;
     if (data.esp32Online === true || data.online === true) return true;
     const ts = data.lastSeen ?? 0;
-    if (ts > 0) {
-        const ageMs = (ts < 10000000000) ? (Date.now() - ts * 1000) : (Date.now() - ts);
-        return ageMs < 60000;
-    }
+    if (ts > 0) return Date.now() - tsToMs(ts) < 60_000;
     return false;
 }
 
 setInterval(() => {
-    if (esp32LastSeen > 0) {
-        const ageMs = (esp32LastSeen < 10000000000) ? (Date.now() - esp32LastSeen * 1000) : (Date.now() - esp32LastSeen);
-        const stillAlive = ageMs < 60000;
-        if (esp32Online !== stillAlive) {
-            esp32Online = stillAlive;
+    if (state.esp32LastSeen > 0) {
+        const alive = Date.now() - tsToMs(state.esp32LastSeen) < 60_000;
+        if (state.esp32Online !== alive) {
+            state.esp32Online = alive;
             updateSystemStatus();
         }
     }
-}, 3000);
+    // Update uptime display live
+    if (monUptime && state.esp32StartTime) {
+        monUptime.textContent = fmtUptime(state.esp32StartTime);
+    }
+}, 5_000);
 
-/* ═══════════════════════════════════════════════════════════
+/* ──────────────────────────────────────────
+   PUMP RUNTIME TRACKER
+────────────────────────────────────────── */
+function startPumpRunTracker() {
+    if (state.pumpRunIntervalId) return;
+    state.pumpRunIntervalId = setInterval(() => {
+        state.pumpRunSeconds++;
+        updatePumpStats(true);
+    }, 1000);
+}
+
+function stopPumpRunTracker() {
+    if (state.pumpRunIntervalId) {
+        clearInterval(state.pumpRunIntervalId);
+        state.pumpRunIntervalId = null;
+    }
+}
+
+function updatePumpStats(on) {
+    if (pumpPowerStatus) pumpPowerStatus.textContent = on ? "ON"  : "OFF";
+    if (pumpRuntime)     pumpRuntime.textContent     = fmtRuntime(state.pumpRunSeconds);
+    if (pumpWaterUsage)  pumpWaterUsage.textContent  = estWaterUsage(state.pumpRunSeconds);
+}
+
+/* ──────────────────────────────────────────
    FIREBASE LISTENERS
-═══════════════════════════════════════════════════════════ */
+────────────────────────────────────────── */
 function startListeners() {
+    // Firebase connection
     onValue(ref(db, ".info/connected"), snap => {
-        firebaseConnected = snap.val() === true;
+        state.firebaseConnected = snap.val() === true;
         updateSystemStatus();
     });
 
+    // System / ESP32 heartbeat
     onValue(ref(db, "system"), snap => {
         const data = snap.val() ?? {};
-        esp32LastSeen = data.lastSeen ?? 0;
-        esp32Online = checkEsp32Online(data);
+        state.esp32LastSeen  = data.lastSeen  ?? 0;
+        state.esp32StartTime = data.startTime ?? 0;
+        state.esp32Online    = checkEsp32Online(data);
         updateSystemStatus();
     });
 
+    // Simple device states (valves, light, fan)
     ["valve1", "valve2", "valve3", "light", "fan"].forEach(key => {
-        onValue(ref(db, `agriculture/${DEVICE_PATHS[key]}/state`), snap => {
-            const state = snap.val() === true;
-            syncDeviceUI(key, state);
+        onValue(ref(db, `agriculture/${PATHS[key]}/state`), snap => {
+            syncDeviceUI(key, snap.val() === true);
         });
     });
 
+    // Sensor readings
+    onValue(ref(db, "sensors"), snap => {
+        const d = snap.val() ?? {};
+        updateSensorDisplays(d);
+    });
+
+    // Water pump (complex – has mode, timer, state)
     onValue(ref(db, "agriculture/waterPump"), snap => {
-        const data = snap.val() ?? {};
-        const state = data.state === true;
-        const mode = data.mode ?? "manual";
+        const data  = snap.val() ?? {};
+        const on    = data.state === true;
+        const mode  = data.mode  ?? "manual";
         const timer = data.timer ?? {};
 
-        syncDeviceUI("pump", state);
+        syncDeviceUI("pump", on);
+        updatePumpStats(on);
+        on ? startPumpRunTracker() : stopPumpRunTracker();
 
-        // Update Pump Timer UI
-        if(mode === "timer") {
-            btnModeTimer.classList.add("active");
-            btnModeManual.classList.remove("active");
-            pumpTimerView.classList.remove("hidden");
-        } else {
-            btnModeManual.classList.add("active");
-            btnModeTimer.classList.remove("active");
-            pumpTimerView.classList.add("hidden");
-        }
+        // Mode toggle UI
+        const isTimer = mode === "timer";
+        btnModeManual.classList.toggle("active", !isTimer);
+        btnModeTimer .classList.toggle("active",  isTimer);
+        pumpTimerView.classList.toggle("hidden",  !isTimer);
 
+        // Timer display
         const timerEnabled = timer.enabled === true;
-        const fbEnd = timer.endTime ?? 0;
-        const fbDur = timer.duration ?? 0;
+        const fbEnd        = timer.endTime  ?? 0;
+        const fbDur        = timer.duration ?? 0;
 
         if (timerEnabled && fbEnd > 0) {
-            timerEndTime = fbEnd;
-            timerDuration = fbDur;
-            if (timerEndTime - Date.now() > 0) {
+            state.timerEndTime  = fbEnd;
+            state.timerDuration = fbDur;
+            if (fbEnd - Date.now() > 0) {
                 timerActiveDisplay.classList.remove("hidden");
-                timerSetupDisplay.classList.add("hidden");
+                timerSetupDisplay .classList.add("hidden");
                 startCountdown();
             } else {
                 handleTimerExpired();
@@ -297,195 +394,285 @@ function startListeners() {
         } else {
             stopCountdown();
             timerActiveDisplay.classList.add("hidden");
-            timerSetupDisplay.classList.remove("hidden");
+            timerSetupDisplay .classList.remove("hidden");
         }
     });
 }
 
-function syncDeviceUI(key, state) {
-    if (toggles[key].mini && toggles[key].mini.checked !== state) toggles[key].mini.checked = state;
-    if (toggles[key].large && toggles[key].large.checked !== state) {
-        if(key === "pump") ignorePumpToggle = true;
-        toggles[key].large.checked = state;
+/* Update sensor value elements */
+function updateSensorDisplays(d) {
+    const temp  = d.temperature != null ? `${d.temperature}°C`    : null;
+    const hum   = d.humidity    != null ? `${d.humidity}%`         : null;
+    const soil  = d.soil        != null ? `${d.soil} ppm`          : null;
+    const light = d.light       != null ? `${d.light.toLocaleString()} lx` : null;
+
+    if (temp  && monTemp)     monTemp.textContent     = temp;
+    if (hum   && monHumidity) monHumidity.textContent = hum;
+    if (hum   && mHumidity)   mHumidity.textContent   = hum;
+    if (soil  && monSoil)     monSoil.textContent      = soil;
+    if (soil  && mSoil)       mSoil.textContent        = soil;
+    if (light && monLight)    monLight.textContent     = light;
+    if (light && mLight)      mLight.textContent       = light;
+}
+
+/* Sync toggle + card active state from Firebase */
+function syncDeviceUI(key, on) {
+    const { mini, large } = toggles[key] ?? {};
+    const { mini: miniCard, large: largeCard } = cards[key] ?? {};
+
+    if (mini  && mini.checked  !== on) {
+        if (key === "pump") state.ignorePumpToggle = true;
+        mini.checked = on;
     }
-    
-    if(cards[key].mini) cards[key].mini.classList.toggle("active", state);
-    if(cards[key].large) cards[key].large.classList.toggle("active", state);
+    if (large && large.checked !== on) {
+        if (key === "pump") state.ignorePumpToggle = true;
+        large.checked = on;
+    }
+    if (miniCard)  miniCard.classList.toggle("active", on);
+    if (largeCard) largeCard.classList.toggle("active", on);
 }
 
-/* ═══════════════════════════════════════════════════════════
-   DEVICE TOGGLES
-═══════════════════════════════════════════════════════════ */
+/* ──────────────────────────────────────────
+   DEVICE TOGGLE BINDING  (debounced writes)
+────────────────────────────────────────── */
+/** Wraps Firebase set/update with user-friendly error handling */
+async function safeWrite(writeFn, rollbackFn) {
+    if (!state.firebaseConnected || !state.esp32Online) {
+        showToast("System offline — controls locked", "error");
+        rollbackFn?.();
+        return false;
+    }
+    try {
+        await writeFn();
+        return true;
+    } catch (err) {
+        console.error("[SmartAgri] Write failed:", err);
+        showToast("Sync failed. Check connection.", "error");
+        rollbackFn?.();
+        return false;
+    }
+}
+
 function bindToggles() {
+    // Simple devices: valve1-3, light, fan
     ["valve1", "valve2", "valve3", "light", "fan"].forEach(key => {
-        const handle = async (e) => {
-            if (!firebaseConnected || !esp32Online) {
-                e.preventDefault();
-                e.target.checked = !e.target.checked;
-                showToast("System offline. Controls locked.", "error");
-                return;
-            }
-            const on = e.target.checked;
-            try {
-                await set(ref(db, `agriculture/${DEVICE_PATHS[key]}/state`), on);
-            } catch (err) {
-                e.target.checked = !on;
-                showToast("Failed to sync", "error");
-            }
+        const handler = async (e) => {
+            const el = e.target;
+            const on = el.checked;
+            const ok = await safeWrite(
+                () => set(ref(db, `agriculture/${PATHS[key]}/state`), on),
+                () => { el.checked = !on; }
+            );
+            if (ok) showToast(`${friendlyName(key)} turned ${on ? "ON" : "OFF"}`);
         };
-        if (toggles[key].mini) toggles[key].mini.addEventListener("change", handle);
-        if (toggles[key].large) toggles[key].large.addEventListener("change", handle);
+        if (toggles[key].mini)  toggles[key].mini .addEventListener("change", handler);
+        if (toggles[key].large) toggles[key].large.addEventListener("change", handler);
     });
 
+    // Pump (has mode + timer awareness)
     const handlePump = async (e) => {
-        if (ignorePumpToggle) { ignorePumpToggle = false; return; }
-        if (!firebaseConnected || !esp32Online) {
-            e.preventDefault();
-            e.target.checked = !e.target.checked;
-            ignorePumpToggle = true;
-            showToast("System offline. Controls locked.", "error");
-            return;
-        }
-        const on = e.target.checked;
-        try {
-            if (!on) {
-                await update(ref(db, "agriculture/waterPump"), { state: false, mode: "manual" });
-                await update(ref(db, "agriculture/waterPump/timer"), { enabled: false, startTime: 0, endTime: 0, duration: 0 });
-            } else {
-                await update(ref(db, "agriculture/waterPump"), { state: true, mode: "manual" });
-            }
-        } catch (err) {
-            e.target.checked = !on;
-            ignorePumpToggle = true;
-            showToast("Failed to sync", "error");
-        }
+        if (state.ignorePumpToggle) { state.ignorePumpToggle = false; return; }
+        const el = e.target;
+        const on = el.checked;
+
+        const ok = await safeWrite(
+            async () => {
+                if (on) {
+                    await update(ref(db, "agriculture/waterPump"), { state: true, mode: "manual" });
+                } else {
+                    await update(ref(db, "agriculture/waterPump"), { state: false, mode: "manual" });
+                    await update(ref(db, "agriculture/waterPump/timer"), { enabled: false, startTime: 0, endTime: 0, duration: 0 });
+                }
+            },
+            () => { state.ignorePumpToggle = true; el.checked = !on; }
+        );
+        if (ok) showToast(`Water Pump turned ${on ? "ON" : "OFF"}`);
     };
-    toggles.pump.mini.addEventListener("change", handlePump);
+    toggles.pump.mini .addEventListener("change", handlePump);
     toggles.pump.large.addEventListener("change", handlePump);
 }
 
-// Quick Actions
-btnAllOn.addEventListener("click", () => setAllValves(true));
-btnAllOff.addEventListener("click", () => setAllValves(false));
-
-async function setAllValves(state) {
-    if (!firebaseConnected || !esp32Online) return showToast("System Offline", "error");
-    try {
-        const updates = {
-            "agriculture/valve1/state": state,
-            "agriculture/valve2/state": state,
-            "agriculture/valve3/state": state
-        };
-        await update(ref(db), updates);
-        showToast(`All valves turned ${state ? 'ON' : 'OFF'}`);
-    } catch(e) { showToast("Failed to sync", "error"); }
+/* Human-friendly device names */
+function friendlyName(key) {
+    const names = {
+        valve1: "Valve 1", valve2: "Valve 2", valve3: "Valve 3",
+        light: "Grow Light", fan: "Exhaust Fan", pump: "Water Pump"
+    };
+    return names[key] ?? key;
 }
 
-/* ═══════════════════════════════════════════════════════════
-   PUMP TIMER LOGIC
-═══════════════════════════════════════════════════════════ */
-btnModeManual.addEventListener("click", () => {
-    update(ref(db, "agriculture/waterPump/mode"), "manual");
+/* ──────────────────────────────────────────
+   QUICK ACTIONS
+────────────────────────────────────────── */
+btnAllOn ?.addEventListener("click", () => setAllValves(true));
+btnAllOff?.addEventListener("click", () => setAllValves(false));
+
+async function setAllValves(on) {
+    const ok = await safeWrite(
+        () => update(ref(db), {
+            "agriculture/valve1/state": on,
+            "agriculture/valve2/state": on,
+            "agriculture/valve3/state": on,
+        })
+    );
+    if (ok) showToast(`All valves turned ${on ? "ON" : "OFF"}`);
+}
+
+/* ──────────────────────────────────────────
+   PUMP MODE BUTTONS
+────────────────────────────────────────── */
+btnModeManual?.addEventListener("click", async () => {
+    const ok = await safeWrite(() => update(ref(db, "agriculture/waterPump"), { mode: "manual" }));
+    if (ok) showToast("Switched to Manual mode", "info");
 });
-btnModeTimer.addEventListener("click", () => {
-    update(ref(db, "agriculture/waterPump/mode"), "timer");
+btnModeTimer?.addEventListener("click", async () => {
+    const ok = await safeWrite(() => update(ref(db, "agriculture/waterPump"), { mode: "timer" }));
+    if (ok) showToast("Switched to Auto/Timer mode", "info");
 });
 
+/* ──────────────────────────────────────────
+   PUMP TIMER – PRESETS
+────────────────────────────────────────── */
 presets.forEach(btn => {
     btn.addEventListener("click", () => {
         presets.forEach(b => b.classList.remove("active"));
         btn.classList.add("active");
-        const mins = parseInt(btn.dataset.min);
-        tHr.value = Math.floor(mins / 60);
+        const mins = parseInt(btn.dataset.min, 10);
+        tHr.value  = Math.floor(mins / 60);
         tMin.value = mins % 60;
         tSec.value = 0;
     });
 });
 
-btnStartTimer.addEventListener("click", async () => {
-    const h = parseInt(tHr.value || 0);
-    const m = parseInt(tMin.value || 0);
-    const s = parseInt(tSec.value || 0);
+/* ──────────────────────────────────────────
+   PUMP TIMER – START / STOP
+────────────────────────────────────────── */
+btnStartTimer?.addEventListener("click", async () => {
+    const h   = parseInt(tHr.value  || 0, 10);
+    const m   = parseInt(tMin.value || 0, 10);
+    const s   = parseInt(tSec.value || 0, 10);
     const tot = h * 3600 + m * 60 + s;
-    if (tot <= 0) return showToast("Enter a duration", "error");
-    
+
+    if (tot <= 0) { showToast("Please enter a valid duration", "error"); return; }
+    if (tot > 24 * 3600) { showToast("Duration too long (max 24h)", "error"); return; }
+
     const now = Date.now();
-    try {
-        await update(ref(db, "agriculture/waterPump"), { state: true, mode: "timer" });
-        await update(ref(db, "agriculture/waterPump/timer"), { enabled: true, startTime: now, endTime: now + tot * 1000, duration: tot });
-        showToast("Timer Started");
-    } catch (e) { showToast("Failed to start timer", "error"); }
+    const ok = await safeWrite(() =>
+        Promise.all([
+            update(ref(db, "agriculture/waterPump"), { state: true, mode: "timer" }),
+            update(ref(db, "agriculture/waterPump/timer"), {
+                enabled: true, startTime: now,
+                endTime: now + tot * 1000, duration: tot
+            }),
+        ])
+    );
+    if (ok) showToast(`Timer set for ${fmtRuntime(tot)}`);
 });
 
-btnStopTimer.addEventListener("click", async () => {
-    try {
-        await update(ref(db, "agriculture/waterPump"), { state: false, mode: "manual" });
-        await update(ref(db, "agriculture/waterPump/timer"), { enabled: false, startTime: 0, endTime: 0, duration: 0 });
-    } catch(e) {}
+btnStopTimer?.addEventListener("click", async () => {
+    const ok = await safeWrite(() =>
+        Promise.all([
+            update(ref(db, "agriculture/waterPump"), { state: false, mode: "manual" }),
+            update(ref(db, "agriculture/waterPump/timer"), { enabled: false, startTime: 0, endTime: 0, duration: 0 }),
+        ])
+    );
+    if (ok) showToast("Pump stopped");
 });
 
+/* ──────────────────────────────────────────
+   COUNTDOWN
+────────────────────────────────────────── */
 function startCountdown() {
     stopCountdown();
-    timerIntervalId = setInterval(() => {
-        const rem = timerEndTime - Date.now();
+    state.timerIntervalId = setInterval(() => {
+        const rem = state.timerEndTime - Date.now();
         if (rem <= 0) { handleTimerExpired(); return; }
-        pumpTimeRem.textContent = formatHMS(rem);
-        const pct = (rem / (timerDuration * 1000)) * 100;
-        pumpProgress.style.width = `${Math.max(0, pct)}%`;
+        pumpTimeRem.textContent   = fmtHMS(rem);
+        const pct = (rem / (state.timerDuration * 1000)) * 100;
+        pumpProgress.style.width  = `${Math.max(0, pct)}%`;
     }, 500);
 }
 
 function stopCountdown() {
-    if (timerIntervalId) clearInterval(timerIntervalId);
-    pumpTimeRem.textContent = "00:00";
-    pumpProgress.style.width = "100%";
+    if (state.timerIntervalId) {
+        clearInterval(state.timerIntervalId);
+        state.timerIntervalId = null;
+    }
+    if (pumpTimeRem)  pumpTimeRem.textContent = "00:00";
+    if (pumpProgress) pumpProgress.style.width = "100%";
 }
 
 function handleTimerExpired() {
     stopCountdown();
     update(ref(db, "agriculture/waterPump"), { state: false, mode: "manual" });
     update(ref(db, "agriculture/waterPump/timer"), { enabled: false, startTime: 0, endTime: 0, duration: 0 });
+    showToast("Timer complete — pump stopped", "info");
 }
 
-/* ═══════════════════════════════════════════════════════════
-   AUTH & INIT
-═══════════════════════════════════════════════════════════ */
-loginForm.addEventListener("submit", async e => {
+/* ──────────────────────────────────────────
+   AUTH
+────────────────────────────────────────── */
+loginForm?.addEventListener("submit", async e => {
     e.preventDefault();
+    const email = loginEmail.value.trim();
+    const pwd   = loginPwd.value;
+    if (!email || !pwd) return;
+
+    setLoginLoading(true);
     loginError.classList.add("hidden");
-    const eVal = loginEmail.value.trim();
-    const pVal = loginPwd.value;
-    if (!eVal || !pVal) return;
-    
-    loginBtn.disabled = true;
-    loginBtn.querySelector(".btn-text").classList.add("hidden");
-    loginBtn.querySelector(".btn-spinner").classList.remove("hidden");
 
     try {
-        await signInWithEmailAndPassword(auth, eVal, pVal);
+        await signInWithEmailAndPassword(auth, email, pwd);
     } catch (err) {
-        loginError.textContent = err.message;
+        const msg = FB_ERRORS[err.code] ?? "Login failed. Please try again.";
+        loginError.innerHTML = `<span class="material-symbols-outlined" style="font-size:16px">error</span><span>${msg}</span>`;
         loginError.classList.remove("hidden");
     } finally {
-        loginBtn.disabled = false;
-        loginBtn.querySelector(".btn-text").classList.remove("hidden");
-        loginBtn.querySelector(".btn-spinner").classList.add("hidden");
+        setLoginLoading(false);
     }
 });
 
-togglePwdBtn.addEventListener("click", () => {
-    loginPwd.type = loginPwd.type === "password" ? "text" : "password";
+function setLoginLoading(loading) {
+    loginBtn.disabled = loading;
+    loginBtn.querySelector(".btn-text").classList.toggle("hidden", loading);
+    loginBtn.querySelector(".btn-spinner").classList.toggle("hidden", !loading);
+}
+
+togglePwdBtn?.addEventListener("click", () => {
+    const isText = loginPwd.type === "text";
+    loginPwd.type          = isText ? "password" : "text";
+    pwdEyeIcon.textContent = isText ? "visibility" : "visibility_off";
 });
 
-logoutBtn.addEventListener("click", () => signOut(auth));
+logoutBtn?.addEventListener("click", () => {
+    stopCountdown();
+    stopPumpRunTracker();
+    signOut(auth);
+});
 
+/* ──────────────────────────────────────────
+   SETTINGS ROW TAPS (friendly feedback)
+────────────────────────────────────────── */
+const settingActions = {
+    "set-wifi":   "Wi-Fi & Firebase settings coming soon",
+    "set-device": "Device configuration coming soon",
+    "set-notif":  "Notification settings coming soon",
+    "set-about":  `SmartAgri v4.0\nESP32 IoT Agriculture Automation`,
+};
+Object.entries(settingActions).forEach(([id, msg]) => {
+    $(id)?.addEventListener("click", () => showToast(msg, "info"));
+});
+
+/* ──────────────────────────────────────────
+   AUTH STATE → INIT
+────────────────────────────────────────── */
 onAuthStateChanged(auth, user => {
     if (user) {
         elLoading.classList.add("fade-out");
         elLogin.classList.add("hidden");
         elApp.classList.remove("hidden");
-        if (!appInitialized) {
-            appInitialized = true;
+        if (!state.appInitialized) {
+            state.appInitialized = true;
             bindToggles();
             startListeners();
         }
@@ -494,5 +681,7 @@ onAuthStateChanged(auth, user => {
         elLogin.classList.remove("hidden");
         elApp.classList.add("hidden");
         stopCountdown();
+        stopPumpRunTracker();
+        state.appInitialized = false;
     }
 });

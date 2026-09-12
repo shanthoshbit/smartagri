@@ -359,12 +359,13 @@ function evaluateEsp32Online(data) {
     if (data.esp32Online === true || data.online === true) {
         return true;
     }
-    // Check heartbeat timestamp (within last 25 seconds)
+    // Check heartbeat timestamp (within last 60 seconds)
+    // Allow negative ageMs to account for slight clock skew between client and server
     const ts = data.lastSeen ?? 0;
     if (ts > 0) {
         // Support either epoch milliseconds or epoch seconds
         const ageMs = (ts < 10000000000) ? (Date.now() - ts * 1000) : (Date.now() - ts);
-        return ageMs >= 0 && ageMs < 25000;
+        return ageMs < 60000;
     }
     return false;
 }
@@ -383,11 +384,12 @@ function watchEsp32Status() {
         updateSystemConnectionState();
     });
 
-    // Heartbeat ticker: If no new ping arrives within 25 seconds, mark ESP32 offline
+    // Heartbeat ticker: If no new ping arrives within 60 seconds, mark ESP32 offline
+    // Clock skew allowed (no ageMs >= 0 check)
     setInterval(() => {
         if (esp32LastSeen > 0) {
             const ageMs = (esp32LastSeen < 10000000000) ? (Date.now() - esp32LastSeen * 1000) : (Date.now() - esp32LastSeen);
-            const stillAlive = ageMs >= 0 && ageMs < 25000;
+            const stillAlive = ageMs < 60000;
             if (esp32Online !== stillAlive) {
                 esp32Online = stillAlive;
                 sbEsp32.className = "";
@@ -470,9 +472,7 @@ function startDeviceListeners() {
         } else {
             stopCountdown();
             hidePumpTimerActive();
-            if (!state && mode === "timer") {
-                showTimerDone();
-            } else {
+            if (state) {
                 hide(timerCompletedDiv);
             }
         }
@@ -683,6 +683,10 @@ function handleTimerExpired() {
     hidePumpTimerActive();
     showTimerDone();
     showCardNotice("pump", "Timer completed — Pump OFF", "success", 5000);
+    
+    // Auto-turn OFF pump in Firebase
+    update(ref(db, "agriculture/waterPump"), { state: false, mode: "manual" }).catch(console.error);
+    update(ref(db, "agriculture/waterPump/timer"), { enabled: false, startTime: 0, endTime: 0, duration: 0 }).catch(console.error);
 }
 
 function showTimerDone() {

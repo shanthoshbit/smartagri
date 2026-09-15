@@ -9,6 +9,11 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>SmartAgri</title>
 
+    <!-- Favicons -->
+    <link rel="icon" type="image/jpeg" href="assets/smartagri.jpg" />
+    <link rel="apple-touch-icon" href="assets/smartagri.jpg" />
+    <link rel="manifest" href="manifest.json" />
+
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -24,16 +29,18 @@
     <!-- ═══════════════════ TOAST CONTAINER ═══════════════════ -->
     <div id="toast-container" class="toast-container" role="alert" aria-live="polite"></div>
 
-    <!-- ═══════════════════ LOADING SCREEN ═══════════════════ -->
+    <!-- ═══════════════════ SPLASH / LOADING SCREEN ═══════════════════ -->
     <div id="loading-screen" class="loading-screen">
+        <div class="loading-bg-glow"></div>
         <div class="loading-content">
-            <div class="loading-logo-wrap">
-                <img src="assets/smartagri.png" alt="SmartAgri Logo" class="loading-logo-img" onerror="this.style.display='none'" />
-                <span class="material-symbols-outlined loading-icon" id="loading-icon-fallback">eco</span>
+            <div class="loading-logo-wrap pulse-glow">
+                <img src="assets/smartagri.jpg" alt="SmartAgri Logo" class="loading-logo-img" onerror="this.style.display='none';document.getElementById('loading-icon-fallback').style.display='block'" />
+                <span class="material-symbols-outlined loading-icon" id="loading-icon-fallback" style="display:none">eco</span>
             </div>
-            <h1 class="loading-brand">SmartAgri</h1>
+            <h1 class="loading-brand">Smart<span class="brand-accent">Agri</span></h1>
             <p class="loading-tagline">IoT for Smart Farming</p>
-            <div class="spinner"></div>
+            <div class="splash-progress-track"><div class="splash-progress-fill"></div></div>
+            <span class="loading-version">v4.2 Real-time Sync</span>
         </div>
     </div>
 
@@ -43,7 +50,7 @@
         <div class="login-card">
             <div class="login-header">
                 <div class="login-logo-wrap">
-                    <img src="assets/smartagri.png" alt="SmartAgri" class="login-logo-img" onerror="this.style.display='none';document.getElementById('login-logo-fallback').style.display='block'" />
+                    <img src="assets/smartagri.jpg" alt="SmartAgri" class="login-logo-img" onerror="this.style.display='none';document.getElementById('login-logo-fallback').style.display='block'" />
                     <span class="material-symbols-outlined login-logo-icon" id="login-logo-fallback" style="display:none">eco</span>
                 </div>
                 <h1 class="login-title">SmartAgri</h1>
@@ -103,20 +110,39 @@
             <!-- ====== HOME SCREEN ====== -->
             <section id="screen-home" class="screen active">
 
+                <!-- Pull-to-Refresh Indicator -->
+                <div class="ptr-indicator" id="ptr-indicator">
+                    <div class="ptr-spinner">
+                        <span class="material-symbols-outlined ptr-icon">refresh</span>
+                    </div>
+                    <span class="ptr-text">Pull to refresh</span>
+                </div>
+
+
                 <!-- Farm Hero Card with real image -->
                 <div class="hero-card" id="hero-card">
-                    <img src="assets/natural senary.png" alt="Farm Field" class="hero-bg-img" />
+                    <img src="assets/natural%20senary.png" alt="Farm Field" class="hero-bg-img" />
                     <div class="hero-overlay"></div>
                     <div class="hero-content">
                         <div class="hero-top">
-                            <span class="material-symbols-outlined hero-location-icon">location_on</span>
-                            <span class="hero-location">Farm Field</span>
+                            <div class="hero-location-wrap">
+                                <span class="material-symbols-outlined hero-location-icon">location_on</span>
+                                <span class="hero-location" id="hero-location-text">Farm Field</span>
+                            </div>
+                            <span class="live-pulse-badge" id="weather-live-badge"><span class="pulse-dot"></span> LIVE</span>
                         </div>
                         <div class="hero-weather">
-                            <span class="material-symbols-outlined weather-icon">light_mode</span>
-                            <span class="weather-temp" id="hero-temp">32°C</span>
+                            <span class="material-symbols-outlined weather-icon" id="hero-weather-icon">light_mode</span>
+                            <span class="weather-temp" id="hero-temp">--°C</span>
+                            <button type="button" class="unit-toggle-btn" id="temp-unit-toggle" title="Toggle °C / °F">°C</button>
                         </div>
-                        <span class="weather-desc" id="hero-desc">Clear Sky</span>
+                        <div class="hero-weather-details">
+                            <span class="weather-desc" id="hero-desc">Clear Sky</span>
+                            <span class="weather-sub" id="hero-weather-sub">Humidity: 65% · Wind: -- km/h</span>
+                        </div>
+                        <button type="button" class="refresh-weather-btn" id="btn-refresh-weather" title="Refresh Weather">
+                            <span class="material-symbols-outlined">refresh</span>
+                        </button>
                     </div>
                 </div>
 
@@ -259,10 +285,10 @@
 
                 <div class="quick-actions">
                     <button id="btn-all-on" class="btn-secondary">
-                        <span class="material-symbols-outlined">power</span> All ON
+                        <span class="material-symbols-outlined">power</span> All Valves ON
                     </button>
                     <button id="btn-all-off" class="btn-secondary danger">
-                        <span class="material-symbols-outlined">power_off</span> All OFF
+                        <span class="material-symbols-outlined">power_off</span> All Valves OFF
                     </button>
                 </div>
             </section>
@@ -603,6 +629,32 @@
                 </div>
             </section>
 
+            <!-- ====== ACTIVITY LOG SCREEN ====== -->
+            <section id="screen-activity" class="screen hidden">
+                <div class="screen-header">
+                    <h2>Activity Log</h2>
+                    <button class="icon-btn" id="btn-clear-activity" aria-label="Clear Log">
+                        <span class="material-symbols-outlined">delete_sweep</span>
+                    </button>
+                </div>
+
+                <div class="activity-filter-bar">
+                    <button class="filter-chip active" data-filter="all">All</button>
+                    <button class="filter-chip" data-filter="device">Devices</button>
+                    <button class="filter-chip" data-filter="sensor">Sensors</button>
+                    <button class="filter-chip" data-filter="schedule">Schedules</button>
+                    <button class="filter-chip" data-filter="alert">Alerts</button>
+                </div>
+
+                <div class="activity-timeline" id="activity-timeline">
+                    <div class="activity-empty" id="activity-empty">
+                        <span class="material-symbols-outlined activity-empty-icon">history</span>
+                        <p>No activity yet</p>
+                        <span class="activity-empty-sub">Device actions and sensor alerts will appear here</span>
+                    </div>
+                </div>
+            </section>
+
             <!-- ====== SETTINGS SCREEN ====== -->
             <section id="screen-settings" class="screen hidden">
                 <div class="screen-header">
@@ -622,6 +674,23 @@
                             <span class="material-symbols-outlined set-icon text-dark">memory</span>
                         </div>
                         <span class="set-label">Device Configuration</span>
+                        <span class="material-symbols-outlined set-chevron">chevron_right</span>
+                    </div>
+                    <div class="setting-item" id="set-dark-mode" role="button" tabindex="0">
+                        <div class="set-icon-wrap gray-bg">
+                            <span class="material-symbols-outlined set-icon text-dark">dark_mode</span>
+                        </div>
+                        <span class="set-label">Dark Mode</span>
+                        <label class="toggle-switch" aria-label="Toggle Dark Mode">
+                            <input type="checkbox" id="dark-mode-toggle">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="setting-item" id="set-alerts" role="button" tabindex="0">
+                        <div class="set-icon-wrap amber-bg">
+                            <span class="material-symbols-outlined set-icon text-amber">emergency</span>
+                        </div>
+                        <span class="set-label">Sensor Alert Thresholds</span>
                         <span class="material-symbols-outlined set-chevron">chevron_right</span>
                     </div>
                     <div class="setting-item" id="set-notif" role="button" tabindex="0">
@@ -672,6 +741,10 @@
             <button class="nav-item" data-target="monitor" aria-label="Monitor">
                 <span class="material-symbols-outlined nav-icon">monitoring</span>
                 <span class="nav-label">Monitor</span>
+            </button>
+            <button class="nav-item" data-target="activity" aria-label="Activity">
+                <span class="material-symbols-outlined nav-icon">history</span>
+                <span class="nav-label">Activity</span>
             </button>
             <button class="nav-item" data-target="settings" aria-label="Settings">
                 <span class="material-symbols-outlined nav-icon">settings</span>
@@ -737,6 +810,87 @@
                     <button type="submit" class="btn-primary full-width mt-20">
                         <span class="material-symbols-outlined">save</span>
                         Save Schedule
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════ SENSOR ALERT THRESHOLDS MODAL ═══════════════════ -->
+    <div id="alert-modal" class="modal hidden">
+        <div class="modal-bg-overlay" id="alert-modal-overlay"></div>
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Sensor Alert Thresholds</h3>
+                <button class="icon-btn" id="btn-close-alert-modal" aria-label="Close">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="alert-form">
+                    <div class="alert-threshold-group">
+                        <div class="alert-th-header">
+                            <span class="material-symbols-outlined text-red">device_thermostat</span>
+                            <span>Temperature (°C)</span>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Min</label>
+                                <div class="input-wrap">
+                                    <input type="number" id="alert-temp-min" class="form-input" placeholder="15" />
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Max</label>
+                                <div class="input-wrap">
+                                    <input type="number" id="alert-temp-max" class="form-input" placeholder="40" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="alert-threshold-group">
+                        <div class="alert-th-header">
+                            <span class="material-symbols-outlined text-blue">water_drop</span>
+                            <span>Humidity (%)</span>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Min</label>
+                                <div class="input-wrap">
+                                    <input type="number" id="alert-hum-min" class="form-input" placeholder="30" />
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Max</label>
+                                <div class="input-wrap">
+                                    <input type="number" id="alert-hum-max" class="form-input" placeholder="80" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="alert-threshold-group">
+                        <div class="alert-th-header">
+                            <span class="material-symbols-outlined text-green">grass</span>
+                            <span>Soil Moisture (ppm)</span>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Min</label>
+                                <div class="input-wrap">
+                                    <input type="number" id="alert-soil-min" class="form-input" placeholder="300" />
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label>Max</label>
+                                <div class="input-wrap">
+                                    <input type="number" id="alert-soil-max" class="form-input" placeholder="900" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary full-width mt-20">
+                        <span class="material-symbols-outlined">save</span>
+                        Save Thresholds
                     </button>
                 </form>
             </div>

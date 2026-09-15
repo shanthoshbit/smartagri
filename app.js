@@ -398,8 +398,164 @@ function startListeners() {
     });
 }
 
+/* ──────────────────────────────────────────
+   REAL-TIME TEMPERATURE & WEATHER ENGINE
+────────────────────────────────────────── */
+const weatherState = {
+    unit: "C", // 'C' or 'F'
+    tempC: null,
+    esp32TempC: null,
+    location: "Farm Field",
+    humidity: 65,
+    wind: null,
+    weatherCode: 0,
+    description: "Clear Sky",
+    isRefreshing: false
+};
+
+const WMO_CODES = {
+    0:  { desc: "Clear Sky", icon: "wb_sunny" },
+    1:  { desc: "Mainly Clear", icon: "wb_sunny" },
+    2:  { desc: "Partly Cloudy", icon: "partly_cloudy_day" },
+    3:  { desc: "Overcast", icon: "cloud" },
+    45: { desc: "Foggy", icon: "foggy" },
+    48: { desc: "Depositing Rime Fog", icon: "foggy" },
+    51: { desc: "Light Drizzle", icon: "rainy" },
+    53: { desc: "Moderate Drizzle", icon: "rainy" },
+    55: { desc: "Dense Drizzle", icon: "rainy" },
+    61: { desc: "Slight Rain", icon: "rainy" },
+    63: { desc: "Moderate Rain", icon: "rainy" },
+    65: { desc: "Heavy Rain", icon: "thunderstorm" },
+    71: { desc: "Slight Snow", icon: "ac_unit" },
+    73: { desc: "Moderate Snow", icon: "ac_unit" },
+    75: { desc: "Heavy Snow", icon: "ac_unit" },
+    80: { desc: "Rain Showers", icon: "rainy" },
+    81: { desc: "Moderate Showers", icon: "rainy" },
+    82: { desc: "Violent Showers", icon: "thunderstorm" },
+    95: { desc: "Thunderstorm", icon: "thunderstorm" },
+    96: { desc: "Thunderstorm w/ Hail", icon: "thunderstorm" }
+};
+
+function convertTemp(c, unit) {
+    if (c == null) return "--";
+    return unit === "F" ? Math.round((c * 9/5) + 32) : Math.round(c);
+}
+
+function updateHeroWeatherUI() {
+    const elTemp = $("hero-temp");
+    const elDesc = $("hero-desc");
+    const elIcon = $("hero-weather-icon");
+    const elSub  = $("hero-weather-sub");
+    const elLoc  = $("hero-location-text");
+    const elBtn  = $("temp-unit-toggle");
+
+    const displayTempC = weatherState.esp32TempC ?? weatherState.tempC;
+
+    if (elTemp) {
+        const val = convertTemp(displayTempC, weatherState.unit);
+        elTemp.textContent = val !== "--" ? `${val}°${weatherState.unit}` : "--°C";
+    }
+
+    if (elBtn) elBtn.textContent = `°${weatherState.unit}`;
+    if (elDesc) elDesc.textContent = weatherState.description;
+    if (elLoc) elLoc.textContent = weatherState.location;
+    if (elIcon) {
+        const info = WMO_CODES[weatherState.weatherCode] ?? { icon: "light_mode" };
+        elIcon.textContent = info.icon;
+    }
+    if (elSub) {
+        const hum = weatherState.humidity != null ? `${weatherState.humidity}%` : "--%";
+        const wind = weatherState.wind != null ? `${weatherState.wind} km/h` : "-- km/h";
+        const sourceLabel = weatherState.esp32TempC != null ? "ESP32 Field Sensor" : "Live Weather";
+        elSub.textContent = `Humidity: ${hum} · Wind: ${wind} · ${sourceLabel}`;
+    }
+}
+
+async function fetchRealtimeWeather(lat = 13.0827, lon = 80.2707, locName = "Farm Field") {
+    weatherState.isRefreshing = true;
+    const btnRefresh = $("btn-refresh-weather");
+    if (btnRefresh) btnRefresh.classList.add("spinning");
+
+    try {
+        const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&hourly=relativehumidity_2m`);
+        if (res.ok) {
+            const data = await res.json();
+            const cw = data.current_weather;
+            if (cw) {
+                weatherState.tempC = cw.temperature;
+                weatherState.weatherCode = cw.weathercode;
+                weatherState.wind = cw.windspeed;
+                const info = WMO_CODES[cw.weathercode] ?? { desc: "Clear Sky" };
+                weatherState.description = info.desc;
+                weatherState.location = locName;
+
+                if (data.hourly?.relativehumidity_2m?.length > 0) {
+                    const hourIdx = new Date().getHours();
+                    weatherState.humidity = data.hourly.relativehumidity_2m[hourIdx] ?? weatherState.humidity;
+                }
+            }
+        }
+    } catch (err) {
+        console.warn("[SmartAgri Weather] Fallback used:", err);
+    } finally {
+        weatherState.isRefreshing = false;
+        if (btnRefresh) btnRefresh.classList.remove("spinning");
+        updateHeroWeatherUI();
+    }
+}
+
+function fetchCurrentWeather() {
+    if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(
+            async pos => {
+                const lat = pos.coords.latitude;
+                const lon = pos.coords.longitude;
+
+                try {
+                    const geoRes = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`);
+                    if (geoRes.ok) {
+                        const geoData = await geoRes.json();
+                        const city = geoData.locality || geoData.city || geoData.principalSubdivision || "Farm Field";
+                        fetchRealtimeWeather(lat, lon, city);
+                        return;
+                    }
+                } catch (_) {}
+                fetchRealtimeWeather(lat, lon, "Local Field");
+            },
+            () => fetchRealtimeWeather(13.0827, 80.2707, "Farm Field"),
+            { timeout: 8000 }
+        );
+    } else {
+        fetchRealtimeWeather(13.0827, 80.2707, "Farm Field");
+    }
+}
+
+let isRealtimeTempInit = false;
+function initRealtimeTemperature() {
+    fetchCurrentWeather();
+    if (isRealtimeTempInit) return;
+    isRealtimeTempInit = true;
+
+    $("temp-unit-toggle")?.addEventListener("click", () => {
+        weatherState.unit = weatherState.unit === "C" ? "F" : "C";
+        updateHeroWeatherUI();
+        showToast(`Temperature unit set to °${weatherState.unit}`, "info");
+    });
+
+    $("btn-refresh-weather")?.addEventListener("click", () => {
+        fetchCurrentWeather();
+        showToast("Refreshing live temperature & weather…", "info");
+    });
+
+    setInterval(() => fetchCurrentWeather(), 600_000);
+}
+
 /* Update sensor value elements */
 function updateSensorDisplays(d) {
+    if (d.temperature != null) {
+        weatherState.esp32TempC = d.temperature;
+        updateHeroWeatherUI();
+    }
     const temp  = d.temperature != null ? `${d.temperature}°C`    : null;
     const hum   = d.humidity    != null ? `${d.humidity}%`         : null;
     const soil  = d.soil        != null ? `${d.soil} ppm`          : null;
@@ -412,6 +568,8 @@ function updateSensorDisplays(d) {
     if (soil  && mSoil)       mSoil.textContent        = soil;
     if (light && monLight)    monLight.textContent     = light;
     if (light && mLight)      mLight.textContent       = light;
+    
+    if (typeof checkSensorAlerts === "function") checkSensorAlerts(d);
 }
 
 /* Sync toggle + card active state from Firebase */
@@ -460,7 +618,10 @@ function bindToggles() {
                 () => set(ref(db, `agriculture/${PATHS[key]}/state`), on),
                 () => { el.checked = !on; }
             );
-            if (ok) showToast(`${friendlyName(key)} turned ${on ? "ON" : "OFF"}`);
+            if (ok) {
+                showToast(`${friendlyName(key)} turned ${on ? "ON" : "OFF"}`);
+                if (typeof logActivity === "function") logActivity(friendlyName(key), `Turned ${on ? "ON" : "OFF"} manually`, "device");
+            }
         };
         if (toggles[key].mini)  toggles[key].mini .addEventListener("change", handler);
         if (toggles[key].large) toggles[key].large.addEventListener("change", handler);
@@ -482,7 +643,10 @@ function bindToggles() {
             },
             () => { el.checked = !on; }
         );
-        if (ok) showToast(`Water Pump turned ${on ? "ON" : "OFF"}`);
+        if (ok) {
+            showToast(`Water Pump turned ${on ? "ON" : "OFF"}`);
+            if (typeof logActivity === "function") logActivity("Water Pump", `Turned ${on ? "ON" : "OFF"} manually`, "device");
+        }
     };
     toggles.pump.mini .addEventListener("change", handlePump);
     toggles.pump.large.addEventListener("change", handlePump);
@@ -511,7 +675,10 @@ async function setAllValves(on) {
             "agriculture/valve3/state": on,
         })
     );
-    if (ok) showToast(`All valves turned ${on ? "ON" : "OFF"}`);
+    if (ok) {
+        showToast(`All valves turned ${on ? "ON" : "OFF"}`);
+        if (typeof logActivity === "function") logActivity("All Valves", `Turned ${on ? "ON" : "OFF"} manually`, "device");
+    }
 }
 
 /* ──────────────────────────────────────────
@@ -519,11 +686,17 @@ async function setAllValves(on) {
 ────────────────────────────────────────── */
 btnModeManual?.addEventListener("click", async () => {
     const ok = await safeWrite(() => update(ref(db, "agriculture/waterPump"), { mode: "manual" }));
-    if (ok) showToast("Switched to Manual mode", "info");
+    if (ok) {
+        showToast("Switched to Manual mode", "info");
+        if (typeof logActivity === "function") logActivity("Water Pump Mode", "Switched to Manual mode", "device");
+    }
 });
 btnModeTimer?.addEventListener("click", async () => {
     const ok = await safeWrite(() => update(ref(db, "agriculture/waterPump"), { mode: "timer" }));
-    if (ok) showToast("Switched to Auto/Timer mode", "info");
+    if (ok) {
+        showToast("Switched to Auto/Timer mode", "info");
+        if (typeof logActivity === "function") logActivity("Water Pump Mode", "Switched to Timer mode", "device");
+    }
 });
 
 /* ──────────────────────────────────────────
@@ -856,10 +1029,10 @@ function startScheduleEngine() {
         // Fetch current schedules snapshot – we already have it via listener
         // but for safety use onValue snapshot cached via global
         if (!window._schedSnap) return;
-        Object.entries(window._schedSnap).forEach(async ([id, s]) => {
-            if (!s.enabled) return;
-            if (!s.days || !s.days.includes(day)) return;
-            if (s.time !== hhmm) return;
+        for (const [id, s] of Object.entries(window._schedSnap)) {
+            if (!s.enabled) continue;
+            if (!s.days || !s.days.includes(day)) continue;
+            if (s.time !== hhmm) continue;
             // Trigger the device ON
             const path = s.device === "pump"
                 ? "agriculture/waterPump"
@@ -875,7 +1048,7 @@ function startScheduleEngine() {
                 setTimeout(() => set(ref(db, `${path}/state`), false), s.duration * 60 * 1000);
             }
             showToast(`Schedule triggered: ${DEVICE_LABELS[s.device] ?? s.device}`, "info");
-        });
+        }
     }, 60_000);
 }
 
@@ -888,13 +1061,247 @@ function startScheduleListenerWithCache() {
 }
 
 /* ──────────────────────────────────────────
+   DARK MODE
+────────────────────────────────────────── */
+function applyTheme(dark) {
+    document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+    const toggle = $("dark-mode-toggle");
+    if (toggle) toggle.checked = dark;
+    localStorage.setItem("smartagri-theme", dark ? "dark" : "light");
+}
+
+// Init from localStorage
+applyTheme(localStorage.getItem("smartagri-theme") === "dark");
+
+$("dark-mode-toggle")?.addEventListener("change", e => {
+    applyTheme(e.target.checked);
+    showToast(e.target.checked ? "Dark mode enabled" : "Light mode enabled", "info");
+});
+
+/* ──────────────────────────────────────────
+   NEW FEATURES (Activity, Alerts, Pull-to-Refresh)
+────────────────────────────────────────── */
+
+/* Pull-to-Refresh */
+const elHome = $("screen-home");
+const ptrInd = $("ptr-indicator");
+let touchStartY = 0, touchCurY = 0, isPulling = false;
+
+elHome?.addEventListener("touchstart", e => {
+    if (elHome.scrollTop === 0) {
+        touchStartY = e.touches[0].clientY;
+        isPulling = true;
+    }
+}, { passive: true });
+
+elHome?.addEventListener("touchmove", e => {
+    if (!isPulling) return;
+    touchCurY = e.touches[0].clientY;
+    const dy = touchCurY - touchStartY;
+    if (dy > 20 && elHome.scrollTop === 0) {
+        ptrInd.classList.add("visible");
+    }
+}, { passive: true });
+
+elHome?.addEventListener("touchend", () => {
+    if (!isPulling) return;
+    const dy = touchCurY - touchStartY;
+    if (dy > 65 && elHome.scrollTop === 0) {
+        ptrInd.classList.add("refreshing");
+        ptrInd.querySelector(".ptr-text").textContent = "Refreshing...";
+        fetchCurrentWeather();
+        setTimeout(() => {
+            ptrInd.classList.remove("visible", "refreshing");
+            ptrInd.querySelector(".ptr-text").textContent = "Pull to refresh";
+            showToast("Dashboard refreshed", "success");
+            if (typeof logActivity === "function") logActivity("System Dashboard", "Refreshed live data", "device");
+        }, 1200);
+    } else {
+        ptrInd.classList.remove("visible");
+    }
+    isPulling = false;
+    touchStartY = 0;
+});
+
+/* Activity Log Engine */
+let activityLogs = JSON.parse(localStorage.getItem("smartagri-activity") || "[]");
+
+window.logActivity = function(title, desc, type = "device") {
+    const entry = { title, desc, type, time: Date.now() };
+    activityLogs.unshift(entry);
+    if (activityLogs.length > 50) activityLogs.pop();
+    localStorage.setItem("smartagri-activity", JSON.stringify(activityLogs));
+    renderActivityLog();
+};
+
+function renderActivityLog(filter = "all") {
+    const timeline = $("activity-timeline");
+    if (!timeline) return;
+    
+    let filtered = activityLogs;
+    if (filter !== "all") {
+        filtered = activityLogs.filter(log => log.type === filter);
+    }
+    
+    if (filtered.length === 0) {
+        timeline.innerHTML = `
+            <div class="activity-empty">
+                <span class="material-symbols-outlined activity-empty-icon">history</span>
+                <p>No activity yet</p>
+                <span class="activity-empty-sub">Device actions and sensor alerts will appear here</span>
+            </div>
+        `;
+        return;
+    }
+    
+    const icons = {
+        device: "router",
+        sensor: "sensors",
+        schedule: "schedule",
+        alert: "warning"
+    };
+    
+    timeline.innerHTML = filtered.map(log => `
+        <div class="activity-entry">
+            <div class="activity-icon-wrap ${log.type}">
+                <span class="material-symbols-outlined">${icons[log.type] || "info"}</span>
+            </div>
+            <div class="activity-info">
+                <div class="activity-title">${log.title}</div>
+                <div class="activity-desc">${log.desc}</div>
+                <div class="activity-time">${fmtTime(log.time)} - ${new Date(log.time).toLocaleDateString()}</div>
+            </div>
+        </div>
+    `).join("");
+}
+
+// Bind activity clear & filters
+$("btn-clear-activity")?.addEventListener("click", () => {
+    if (confirm("Clear all activity logs?")) {
+        activityLogs = [];
+        localStorage.setItem("smartagri-activity", "[]");
+        renderActivityLog();
+        showToast("Activity log cleared", "info");
+    }
+});
+document.querySelectorAll(".filter-chip").forEach(chip => {
+    chip.addEventListener("click", e => {
+        document.querySelectorAll(".filter-chip").forEach(c => c.classList.remove("active"));
+        e.target.classList.add("active");
+        renderActivityLog(e.target.dataset.filter);
+    });
+});
+// Render initial logs
+renderActivityLog();
+
+/* Sensor Alert Thresholds Engine */
+let alertThresholds = JSON.parse(localStorage.getItem("smartagri-thresholds") || JSON.stringify({
+    tempMin: "", tempMax: 40,
+    humMin: 30, humMax: 80,
+    soilMin: 300, soilMax: ""
+}));
+let lastAlertTimes = {};
+
+function loadThresholdInputs() {
+    $("alert-temp-min").value = alertThresholds.tempMin;
+    $("alert-temp-max").value = alertThresholds.tempMax;
+    $("alert-hum-min").value  = alertThresholds.humMin;
+    $("alert-hum-max").value  = alertThresholds.humMax;
+    $("alert-soil-min").value = alertThresholds.soilMin;
+    $("alert-soil-max").value = alertThresholds.soilMax;
+}
+
+$("set-alerts")?.addEventListener("click", () => {
+    loadThresholdInputs();
+    $("alert-modal")?.classList.remove("hidden");
+});
+$("btn-close-alert-modal")?.addEventListener("click", () => $("alert-modal").classList.add("hidden"));
+$("alert-modal-overlay")?.addEventListener("click", () => $("alert-modal").classList.add("hidden"));
+
+$("alert-form")?.addEventListener("submit", e => {
+    e.preventDefault();
+    alertThresholds = {
+        tempMin: $("alert-temp-min").value, tempMax: $("alert-temp-max").value,
+        humMin: $("alert-hum-min").value,   humMax: $("alert-hum-max").value,
+        soilMin: $("alert-soil-min").value, soilMax: $("alert-soil-max").value
+    };
+    localStorage.setItem("smartagri-thresholds", JSON.stringify(alertThresholds));
+    $("alert-modal").classList.add("hidden");
+    showToast("Alert thresholds saved", "success");
+});
+
+window.checkSensorAlerts = function(d) {
+    const now = Date.now();
+    const COOLDOWN = 3600000; // 1 hour cooldown per alert type so we don't spam
+    
+    function triggerAlert(key, title, desc) {
+        if (!lastAlertTimes[key] || (now - lastAlertTimes[key] > COOLDOWN)) {
+            logActivity(title, desc, "alert");
+            showToast(desc, "error");
+            
+            // Show notification badge
+            const badge = $("notif-badge");
+            if (badge) {
+                badge.classList.remove("hidden");
+                // Reset animation
+                badge.style.animation = 'none';
+                badge.offsetHeight; /* trigger reflow */
+                badge.style.animation = null; 
+            }
+            
+            lastAlertTimes[key] = now;
+        }
+    }
+    
+    // Check Temperature
+    const t = d.temperature;
+    let tAlert = false;
+    if (t != null) {
+        if (alertThresholds.tempMax !== "" && t > Number(alertThresholds.tempMax)) { triggerAlert("tempMax", "High Temperature Alert", `Temperature exceeded ${alertThresholds.tempMax}°C (Currently ${t}°C)`); tAlert = true; }
+        if (alertThresholds.tempMin !== "" && t < Number(alertThresholds.tempMin)) { triggerAlert("tempMin", "Low Temperature Alert", `Temperature dropped below ${alertThresholds.tempMin}°C (Currently ${t}°C)`); tAlert = true; }
+    }
+    
+    // Check Humidity
+    const h = d.humidity;
+    let hAlert = false;
+    if (h != null) {
+        if (alertThresholds.humMax !== "" && h > Number(alertThresholds.humMax)) { triggerAlert("humMax", "High Humidity Alert", `Humidity exceeded ${alertThresholds.humMax}% (Currently ${h}%)`); hAlert = true; }
+        if (alertThresholds.humMin !== "" && h < Number(alertThresholds.humMin)) { triggerAlert("humMin", "Low Humidity Alert", `Humidity dropped below ${alertThresholds.humMin}% (Currently ${h}%)`); hAlert = true; }
+    }
+    
+    // Check Soil
+    const s = d.soil;
+    let sAlert = false;
+    if (s != null) {
+        if (alertThresholds.soilMax !== "" && s > Number(alertThresholds.soilMax)) { triggerAlert("soilMax", "High Soil Moisture Alert", `Soil moisture exceeded ${alertThresholds.soilMax}ppm (Currently ${s}ppm)`); sAlert = true; }
+        if (alertThresholds.soilMin !== "" && s < Number(alertThresholds.soilMin)) { triggerAlert("soilMin", "Low Soil Moisture Alert", `Soil moisture dropped below ${alertThresholds.soilMin}ppm (Currently ${s}ppm)`); sAlert = true; }
+    }
+    
+    // Update metric card borders (Home)
+    if (mHumidity) mHumidity.parentElement.classList.toggle("alert-active", hAlert);
+    if (mSoil) mSoil.parentElement.classList.toggle("alert-active", sAlert);
+    
+    // Update sensor boxes (Monitor)
+    if (monTemp) monTemp.parentElement.classList.toggle("alert-active", tAlert);
+    if (monHumidity) monHumidity.parentElement.classList.toggle("alert-active", hAlert);
+    if (monSoil) monSoil.parentElement.classList.toggle("alert-active", sAlert);
+};
+
+// Wire notification bell click to switch to Activity tab
+$("btn-notif")?.addEventListener("click", () => {
+    switchTab("activity");
+    $("notif-badge")?.classList.add("hidden"); // Clear badge on view
+});
+
+
+/* ──────────────────────────────────────────
    SETTINGS ROW TAPS (friendly feedback)
 ────────────────────────────────────────── */
 const settingActions = {
     "set-wifi":   "Wi-Fi & Firebase settings coming soon",
     "set-device": "Device configuration coming soon",
     "set-notif":  "Notification settings coming soon",
-    "set-about":  `SmartAgri v4.0\nESP32 IoT Agriculture Automation`,
+    "set-about":  `SmartAgri v4.2\nESP32 IoT Agriculture Automation`,
 };
 Object.entries(settingActions).forEach(([id, msg]) => {
     $(id)?.addEventListener("click", () => showToast(msg, "info"));
@@ -914,6 +1321,7 @@ onAuthStateChanged(auth, user => {
             startListeners();
             startScheduleListenerWithCache();
             startScheduleEngine();
+            initRealtimeTemperature();
         }
     } else {
         elLoading.classList.add("fade-out");
@@ -924,3 +1332,6 @@ onAuthStateChanged(auth, user => {
         state.appInitialized = false;
     }
 });
+
+// Also trigger immediate weather fetch for fast splash load
+initRealtimeTemperature();

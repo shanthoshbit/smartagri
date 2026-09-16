@@ -59,6 +59,11 @@ const PATHS = {
     fan:    "fan",
 };
 
+const VALID_ESP32_GPIOS = [2, 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33];
+const HARDCODED_GPIOS = { pump: 16, valve1: 17, valve2: 18, valve3: 19, light: 25, fan: 26 };
+const MAX_CUSTOM_DEVICES = 12;
+const CUSTOM_DEVICE_ICONS = ["water_drop", "lightbulb", "power", "thermostat", "air", "sensors", "valve", "sprinkler", "grass", "eco", "bolt", "settings", "mode_fan", "toys", "opacity", "science"];
+
 /* Firebase-friendly error messages */
 const FB_ERRORS = {
     "auth/invalid-email":        "Invalid email address.",
@@ -154,6 +159,29 @@ const btnAllOff = $("btn-all-off");
 
 // Toast
 const toastContainer = $("toast-container");
+
+// Custom Devices & Mgmt
+const customDevicesHomeGrid = $("custom-devices-home-grid");
+const customDevicesControlList = $("custom-devices-control-list");
+const addDeviceModal = $("add-device-modal");
+const addDeviceForm = $("add-device-form");
+const btnCloseAddDevice = $("btn-close-add-device");
+const addDeviceOverlay = $("add-device-overlay");
+const addDeviceIconGrid = $("add-device-icon-grid");
+const addDeviceIconInput = $("add-device-icon");
+const addDeviceImgInput = $("add-device-img-input");
+const addDeviceImgPreview = $("add-device-img-preview");
+const addDeviceImgArea = $("add-device-img-area");
+const addDeviceImgBase64 = $("add-device-img-base64");
+const addDeviceGpio = $("add-device-gpio");
+
+const deviceMgmtModal = $("device-mgmt-modal");
+const deviceMgmtOverlay = $("device-mgmt-overlay");
+const btnCloseDeviceMgmt = $("btn-close-device-mgmt");
+const btnMgmtAddDevice = $("btn-mgmt-add-device");
+const deviceMgmtList = $("device-mgmt-list");
+
+let customDevicesCache = {};
 
 /* ──────────────────────────────────────────
    TOAST
@@ -395,6 +423,13 @@ function startListeners() {
             timerActiveDisplay.classList.add("hidden");
             timerSetupDisplay .classList.remove("hidden");
         }
+    });
+
+    // Custom Devices
+    onValue(ref(db, "agriculture/customDevices"), snap => {
+        const devices = snap.val() ?? {};
+        renderAllCustomDevices(devices);
+        populateScheduleDeviceDropdown();
     });
 }
 
@@ -1042,12 +1077,23 @@ function startScheduleEngine() {
                 const nowMs  = Date.now();
                 await update(ref(db, path), { state: true, mode: "timer" });
                 await update(ref(db, `${path}/timer`), { enabled: true, startTime: nowMs, endTime: nowMs + durMs, duration: s.duration * 60 });
-            } else {
+            } else if (PATHS[s.device]) {
+                // Hardcoded valves
                 await set(ref(db, `${path}/state`), true);
-                // Auto-off after duration
                 setTimeout(() => set(ref(db, `${path}/state`), false), s.duration * 60 * 1000);
+            } else {
+                // Custom device
+                const customPath = `agriculture/customDevices/${s.device}/state`;
+                const customGpioPath = `agriculture/gpioConfig/${s.device}/state`;
+                await set(ref(db, customPath), true);
+                await set(ref(db, customGpioPath), true);
+                setTimeout(async () => {
+                    await set(ref(db, customPath), false);
+                    await set(ref(db, customGpioPath), false);
+                }, s.duration * 60 * 1000);
             }
-            showToast(`Schedule triggered: ${DEVICE_LABELS[s.device] ?? s.device}`, "info");
+            const label = DEVICE_LABELS[s.device] || (customDevicesCache[s.device] ? customDevicesCache[s.device].name : s.device);
+            showToast(`Schedule triggered: ${label}`, "info");
         }
     }, 60_000);
 }
@@ -1293,19 +1339,453 @@ $("btn-notif")?.addEventListener("click", () => {
     $("notif-badge")?.classList.add("hidden"); // Clear badge on view
 });
 
+/* ──────────────────────────────────────────
+   CUSTOM DEVICES MANAGEMENT
+────────────────────────────────────────── */
+// Image compression helper
+function compressImage(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = event => {
+            const img = new Image();
+            img.src = event.target.result;
+            img.onload = () => {
+                const canvas = document.createElement("canvas");
+                const MAX_WIDTH = 400;
+                const MAX_HEIGHT = 400;
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > MAX_WIDTH) {
+                        height *= MAX_WIDTH / width;
+                        width = MAX_WIDTH;
+                    }
+                } else {
+                    if (height > MAX_HEIGHT) {
+                        width *= MAX_HEIGHT / height;
+                        height = MAX_HEIGHT;
+                    }
+                }
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0, width, height);
+                // Compress as JPEG
+                resolve(canvas.toDataURL("image/jpeg", 0.7));
+            };
+        };
+        reader.onerror = error => reject(error);
+    });
+}
+
+// Get all used GPIOs
+function getUsedGpios(excludeId = null) {
+    const used = new Set();
+    Object.values(HARDCODED_GPIOS).forEach(pin => used.add(pin));
+    Object.entries(customDevicesCache).forEach(([id, dev]) => {
+        if (id !== excludeId && dev.gpio) used.add(Number(dev.gpio));
+    });
+    return used;
+}
+
+// Populate GPIO Dropdown
+function populateGpioDropdown(excludeId = null) {
+    if (!addDeviceGpio) return;
+    const used = getUsedGpios(excludeId);
+    let html = '<option value="" disabled selected>Select a GPIO Pin</option>';
+    VALID_ESP32_GPIOS.forEach(pin => {
+        const inUse = used.has(pin);
+        html += `<option value="${pin}" ${inUse ? 'disabled' : ''}>GPIO ${pin} ${inUse ? '(In Use)' : ''}</option>`;
+    });
+    addDeviceGpio.innerHTML = html;
+}
+
+// Render icon picker
+function renderIconPicker() {
+    if (!addDeviceIconGrid) return;
+    addDeviceIconGrid.innerHTML = CUSTOM_DEVICE_ICONS.map(icon => `
+        <div class="icon-chip" data-icon="${icon}">
+            <span class="material-symbols-outlined">${icon}</span>
+        </div>
+    `).join("");
+    
+    // Bind clicks
+    addDeviceIconGrid.querySelectorAll(".icon-chip").forEach(chip => {
+        chip.addEventListener("click", () => {
+            addDeviceIconGrid.querySelectorAll(".icon-chip").forEach(c => c.classList.remove("selected"));
+            chip.classList.add("selected");
+            if (addDeviceIconInput) addDeviceIconInput.value = chip.dataset.icon;
+        });
+    });
+}
+// Init icon picker once
+renderIconPicker();
+
+// Image upload handling
+if (addDeviceImgInput) {
+    addDeviceImgInput.addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+            const base64 = await compressImage(file);
+            if (addDeviceImgPreview) addDeviceImgPreview.src = base64;
+            if (addDeviceImgBase64) addDeviceImgBase64.value = base64;
+            if (addDeviceImgArea) addDeviceImgArea.classList.add("has-image");
+        } catch (err) {
+            showToast("Failed to process image", "error");
+        }
+    });
+}
+
+function openAddDeviceModal(editData = null) {
+    if (!addDeviceModal) return;
+    
+    // Check limit for new devices
+    if (!editData && Object.keys(customDevicesCache).length >= MAX_CUSTOM_DEVICES) {
+        showToast(`Maximum device limit (${MAX_CUSTOM_DEVICES}) reached.`, "error");
+        return;
+    }
+    
+    populateGpioDropdown(editData ? editData.id : null);
+    
+    $("add-device-title").textContent = editData ? "Edit Custom Device" : "Add Custom Device";
+    $("add-device-id").value = editData ? editData.id : "";
+    $("add-device-name").value = editData ? editData.name : "";
+    $("add-device-desc").value = editData ? (editData.description || "") : "";
+    
+    if (editData && editData.gpio) {
+        addDeviceGpio.value = editData.gpio;
+    } else {
+        addDeviceGpio.value = "";
+    }
+    
+    // Set icon
+    const iconToSet = (editData && editData.icon) ? editData.icon : "water_drop";
+    if (addDeviceIconInput) addDeviceIconInput.value = iconToSet;
+    addDeviceIconGrid.querySelectorAll(".icon-chip").forEach(c => {
+        c.classList.toggle("selected", c.dataset.icon === iconToSet);
+    });
+    
+    // Set image
+    if (addDeviceImgBase64) addDeviceImgBase64.value = editData ? (editData.imageBase64 || "") : "";
+    if (addDeviceImgPreview) addDeviceImgPreview.src = editData ? (editData.imageBase64 || "") : "";
+    if (addDeviceImgArea) {
+        editData && editData.imageBase64 ? addDeviceImgArea.classList.add("has-image") : addDeviceImgArea.classList.remove("has-image");
+    }
+    
+    if (addDeviceImgInput) addDeviceImgInput.value = "";
+    
+    addDeviceModal.classList.remove("hidden");
+    if (deviceMgmtModal) deviceMgmtModal.classList.add("hidden");
+}
+
+function closeAddDeviceModal() {
+    if (addDeviceModal) addDeviceModal.classList.add("hidden");
+    if (addDeviceForm) addDeviceForm.reset();
+    if (addDeviceImgArea) addDeviceImgArea.classList.remove("has-image");
+    if (addDeviceImgPreview) addDeviceImgPreview.src = "";
+    if (addDeviceImgBase64) addDeviceImgBase64.value = "";
+}
+
+// Bind close buttons
+if (btnCloseAddDevice) btnCloseAddDevice.addEventListener("click", closeAddDeviceModal);
+if (addDeviceOverlay) addDeviceOverlay.addEventListener("click", closeAddDeviceModal);
+if (btnMgmtAddDevice) btnMgmtAddDevice.addEventListener("click", () => openAddDeviceModal());
+
+// Form submit
+if (addDeviceForm) {
+    addDeviceForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const id = $("add-device-id").value;
+        const name = $("add-device-name").value.trim();
+        const gpio = Number($("add-device-gpio").value);
+        const desc = $("add-device-desc").value.trim();
+        const icon = $("add-device-icon").value || "water_drop";
+        const img = $("add-device-img-base64").value;
+        
+        if (!name || !gpio) {
+            showToast("Name and GPIO are required", "error");
+            return;
+        }
+        
+        const used = getUsedGpios(id);
+        if (used.has(gpio)) {
+            // Should be prevented by UI disabled option, but just in case
+            showToast(`GPIO ${gpio} is already in use`, "error");
+            return;
+        }
+
+        const payload = {
+            name, gpio, description: desc, icon,
+            imageBase64: img || null,
+            enabled: true,
+            updatedAt: Date.now()
+        };
+        
+        if (!id) {
+            payload.state = false;
+            payload.createdAt = Date.now();
+        }
+
+        let ok = false;
+        try {
+            if (id) {
+                // Update existing
+                await update(ref(db, `agriculture/customDevices/${id}`), payload);
+                await update(ref(db, `agriculture/gpioConfig/${id}`), { gpio, name });
+                ok = true;
+            } else {
+                // Create new (push returns a ref with a key)
+                const newRef = push(ref(db, "agriculture/customDevices"));
+                const newId = newRef.key;
+                await set(newRef, payload);
+                await set(ref(db, `agriculture/gpioConfig/${newId}`), { gpio, name, state: false });
+                ok = true;
+            }
+        } catch(err) {
+            console.error("Failed to save custom device", err);
+            showToast("Failed to save device", "error");
+        }
+        
+        if (ok) {
+            closeAddDeviceModal();
+            showToast(`Device ${id ? 'updated' : 'added'} successfully`);
+            if (typeof logActivity === "function") logActivity("Device Configuration", `${name} (GPIO ${gpio}) ${id ? 'updated' : 'added'}`, "device");
+        }
+    });
+}
+
+// Delete custom device
+window.deleteCustomDevice = async function(id) {
+    if (!confirm("Are you sure you want to delete this device? This will also remove it from any schedules.")) return;
+    try {
+        await remove(ref(db, `agriculture/customDevices/${id}`));
+        await remove(ref(db, `agriculture/gpioConfig/${id}`));
+        // Cleanup schedules associated with this device
+        if (window._schedSnap) {
+            for (const [schId, s] of Object.entries(window._schedSnap)) {
+                if (s.device === id) {
+                    await remove(ref(db, `agriculture/schedules/${schId}`));
+                }
+            }
+        }
+        showToast("Device deleted");
+        if (typeof logActivity === "function") logActivity("Device Configuration", `Device deleted`, "device");
+        // Re-open management modal to show updated list
+        if (deviceMgmtModal) openDeviceMgmtModal();
+    } catch(err) {
+        showToast("Failed to delete device", "error");
+    }
+};
+
+// Render logic
+function renderAllCustomDevices(devicesObj) {
+    customDevicesCache = devicesObj || {};
+    
+    if (customDevicesHomeGrid) {
+        customDevicesHomeGrid.innerHTML = Object.entries(customDevicesCache).map(([id, dev]) => renderCustomDeviceMini(id, dev)).join("");
+    }
+    
+    if (customDevicesControlList) {
+        customDevicesControlList.innerHTML = Object.entries(customDevicesCache).map(([id, dev]) => renderCustomDeviceLarge(id, dev)).join("");
+    }
+    
+    // Bind toggles for rendered cards
+    Object.entries(customDevicesCache).forEach(([id, dev]) => {
+        bindCustomDeviceToggle(id, dev);
+    });
+    
+    // Add FABs
+    if (customDevicesHomeGrid) {
+        const fab = document.createElement("div");
+        fab.className = "btn-add-device-card";
+        fab.innerHTML = `<span class="material-symbols-outlined">add</span><span>Add Device</span>`;
+        fab.addEventListener("click", () => openAddDeviceModal());
+        customDevicesHomeGrid.appendChild(fab);
+    }
+    
+    if (customDevicesControlList) {
+        const fab = document.createElement("button");
+        fab.className = "btn-secondary full-width mt-10";
+        fab.style.padding = "16px";
+        fab.style.borderStyle = "dashed";
+        fab.innerHTML = `<span class="material-symbols-outlined">add</span> Add Custom Device`;
+        fab.addEventListener("click", () => openAddDeviceModal());
+        customDevicesControlList.appendChild(fab);
+    }
+    
+    // Re-render device management list if open
+    if (deviceMgmtModal && !deviceMgmtModal.classList.contains("hidden")) {
+        renderDeviceMgmtList();
+    }
+}
+
+function getDeviceImageHtml(dev, isMini = false) {
+    if (dev.imageBase64) {
+        return `<img src="${dev.imageBase64}" alt="${dev.name}" class="${isMini ? 'dmini-img' : 'card-device-img'}" />`;
+    } else {
+        return `<div class="custom-device-icon"><span class="material-symbols-outlined" style="font-size: inherit">${dev.icon || 'water_drop'}</span></div>`;
+    }
+}
+
+function renderCustomDeviceMini(id, dev) {
+    const isActive = dev.state ? "active" : "";
+    const isChecked = dev.state ? "checked" : "";
+    return `
+    <div class="device-card-mini custom-card ${isActive}" id="mini-card-${id}">
+        <div class="dmini-img-wrap" style="padding: ${dev.imageBase64 ? '0' : '8px'};">
+            ${getDeviceImageHtml(dev, true)}
+        </div>
+        <div class="dmini-info">
+            <span class="dmini-name">${dev.name}</span>
+            <span class="dmini-gpio">GPIO ${dev.gpio}</span>
+        </div>
+        <label class="toggle-switch" aria-label="Toggle ${dev.name}">
+            <input type="checkbox" id="mini-toggle-${id}" ${isChecked}>
+            <span class="toggle-slider"></span>
+        </label>
+    </div>`;
+}
+
+function renderCustomDeviceLarge(id, dev) {
+    const isActive = dev.state ? "active" : "";
+    const isChecked = dev.state ? "checked" : "";
+    return `
+    <div class="device-card-large custom-card ${isActive}" id="card-${id}">
+        <div class="card-device-img-wrap" style="padding: ${dev.imageBase64 ? '0' : '20px'};">
+            ${getDeviceImageHtml(dev, false)}
+        </div>
+        <div class="card-large-top">
+            <div class="dlarge-info">
+                <h3>${dev.name}</h3>
+                <span class="card-desc-sub">${dev.description || 'Custom Device'}</span>
+                <span class="badge-gpio">GPIO ${dev.gpio}</span>
+            </div>
+            <label class="toggle-switch large" aria-label="Toggle ${dev.name}">
+                <input type="checkbox" id="toggle-${id}" ${isChecked}>
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+    </div>`;
+}
+
+function bindCustomDeviceToggle(id, dev) {
+    const handler = async (e) => {
+        const el = e.target;
+        const on = el.checked;
+        const ok = await safeWrite(
+            async () => {
+                await set(ref(db, `agriculture/customDevices/${id}/state`), on);
+                await set(ref(db, `agriculture/gpioConfig/${id}/state`), on);
+            },
+            () => { el.checked = !on; }
+        );
+        if (ok) {
+            showToast(`${dev.name} turned ${on ? "ON" : "OFF"}`);
+            if (typeof logActivity === "function") logActivity(dev.name, `Turned ${on ? "ON" : "OFF"} manually`, "device");
+        }
+    };
+    const miniToggle = $(`mini-toggle-${id}`);
+    const largeToggle = $(`toggle-${id}`);
+    if (miniToggle) { miniToggle.onchange = null; miniToggle.addEventListener("change", handler); }
+    if (largeToggle) { largeToggle.onchange = null; largeToggle.addEventListener("change", handler); }
+}
+
+// Device Management Settings Panel
+function openDeviceMgmtModal() {
+    if (!deviceMgmtModal) return;
+    renderDeviceMgmtList();
+    deviceMgmtModal.classList.remove("hidden");
+}
+
+if (btnCloseDeviceMgmt) btnCloseDeviceMgmt.addEventListener("click", () => deviceMgmtModal.classList.add("hidden"));
+if (deviceMgmtOverlay) deviceMgmtOverlay.addEventListener("click", () => deviceMgmtModal.classList.add("hidden"));
+
+window.editCustomDevice = function(id) {
+    const dev = customDevicesCache[id];
+    if (dev) openAddDeviceModal({ id, ...dev });
+};
+
+function renderDeviceMgmtList() {
+    if (!deviceMgmtList) return;
+    let html = `
+        <div class="device-mgmt-item" style="background: var(--gray-50);">
+            <div class="device-mgmt-info">
+                <span class="device-mgmt-name">Water Pump</span>
+                <span class="device-mgmt-type">System Default · GPIO 16</span>
+            </div>
+        </div>
+        <div class="device-mgmt-item" style="background: var(--gray-50);">
+            <div class="device-mgmt-info">
+                <span class="device-mgmt-name">Valve 1, 2, 3</span>
+                <span class="device-mgmt-type">System Default · GPIO 17, 18, 19</span>
+            </div>
+        </div>
+        <div class="device-mgmt-item" style="background: var(--gray-50);">
+            <div class="device-mgmt-info">
+                <span class="device-mgmt-name">Grow Light, Fan</span>
+                <span class="device-mgmt-type">System Default · GPIO 25, 26</span>
+            </div>
+        </div>
+    `;
+    
+    Object.entries(customDevicesCache).forEach(([id, dev]) => {
+        html += `
+        <div class="device-mgmt-item">
+            <div class="device-mgmt-info">
+                <span class="device-mgmt-name">${dev.name}</span>
+                <span class="device-mgmt-type">Custom · GPIO ${dev.gpio}</span>
+            </div>
+            <div class="device-mgmt-actions">
+                <button class="icon-btn text-blue" onclick="editCustomDevice('${id}')"><span class="material-symbols-outlined">edit</span></button>
+                <button class="icon-btn text-red" onclick="deleteCustomDevice('${id}')"><span class="material-symbols-outlined">delete</span></button>
+            </div>
+        </div>`;
+    });
+    
+    deviceMgmtList.innerHTML = html;
+}
+
+// Populate Schedule Dropdown
+function populateScheduleDeviceDropdown() {
+    if (!schDevice) return;
+    const currentVal = schDevice.value;
+    
+    let html = `
+        <option value="valve1">Zone 1 (Valve 1)</option>
+        <option value="valve2">Zone 2 (Valve 2)</option>
+        <option value="valve3">Zone 3 (Valve 3)</option>
+        <option value="pump">Water Pump</option>
+        <option disabled>──────────</option>
+    `;
+    
+    Object.entries(customDevicesCache).forEach(([id, dev]) => {
+        html += `<option value="${id}">${dev.name}</option>`;
+    });
+    
+    schDevice.innerHTML = html;
+    
+    // Restore value if it still exists
+    if (currentVal && Array.from(schDevice.options).some(opt => opt.value === currentVal)) {
+        schDevice.value = currentVal;
+    }
+}
+
 
 /* ──────────────────────────────────────────
    SETTINGS ROW TAPS (friendly feedback)
 ────────────────────────────────────────── */
 const settingActions = {
     "set-wifi":   "Wi-Fi & Firebase settings coming soon",
-    "set-device": "Device configuration coming soon",
     "set-notif":  "Notification settings coming soon",
     "set-about":  `SmartAgri v4.2\nESP32 IoT Agriculture Automation`,
 };
 Object.entries(settingActions).forEach(([id, msg]) => {
     $(id)?.addEventListener("click", () => showToast(msg, "info"));
 });
+$("set-device")?.addEventListener("click", () => openDeviceMgmtModal());
 
 /* ──────────────────────────────────────────
    AUTH STATE → INIT

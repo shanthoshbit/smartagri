@@ -1059,6 +1059,84 @@ select.form-input { appearance: none; cursor: pointer; }
 .set-icon-wrap.amber-bg { background: rgba(245, 158, 11, 0.1); }
 
 /* ══════════════════════════════════════════
+   CUSTOM DEVICES & DEVICE MANAGEMENT
+══════════════════════════════════════════ */
+/* Icon Picker */
+.icon-picker-grid {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    gap: 8px; margin-top: 8px; max-height: 140px; overflow-y: auto;
+    padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface);
+}
+.icon-chip {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; aspect-ratio: 1; border-radius: var(--radius-sm);
+    background: var(--bg); border: 1px solid var(--border);
+    cursor: pointer; transition: all 0.2s; color: var(--text-muted);
+}
+.icon-chip .material-symbols-outlined { font-size: 24px; }
+.icon-chip:hover { background: var(--gray-50); }
+.icon-chip.selected {
+    background: var(--green-50); border-color: var(--green-500);
+    color: var(--green-600); box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+}
+
+/* Image Upload Area */
+.image-upload-area {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    width: 100%; height: 100px; border: 2px dashed var(--border);
+    border-radius: var(--radius-md); background: var(--surface);
+    cursor: pointer; transition: all 0.2s; position: relative; overflow: hidden;
+    margin-top: 8px; color: var(--text-muted);
+}
+.image-upload-area:hover { border-color: var(--green-400); background: var(--green-50); color: var(--green-600); }
+.image-upload-area .material-symbols-outlined { font-size: 32px; margin-bottom: 4px; }
+.image-upload-area span { font-size: 0.8rem; font-weight: 500; }
+.image-preview { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; display: none; }
+.image-upload-area.has-image .image-preview { display: block; }
+.image-upload-area.has-image .material-symbols-outlined,
+.image-upload-area.has-image span { display: none; }
+.image-upload-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 2; }
+
+/* GPIO Pin Badge */
+.gpio-pin-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--gray-100); color: var(--text-muted);
+    font-size: 0.75rem; font-weight: 700; padding: 2px 8px;
+    border-radius: var(--radius-full); margin-left: auto;
+}
+.gpio-pin-badge.in-use { background: var(--red-50); color: var(--red-600); }
+.gpio-pin-badge.available { background: var(--green-50); color: var(--green-700); }
+
+/* Add Device FAB (Control Screen & Home Screen) */
+.btn-add-device-card {
+    background: transparent; border: 2px dashed var(--border);
+    border-radius: var(--radius-lg); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 8px; padding: 20px;
+    color: var(--text-muted); cursor: pointer; transition: all 0.2s;
+    min-height: 120px;
+}
+.btn-add-device-card:hover { border-color: var(--green-400); background: var(--green-50); color: var(--green-600); }
+.btn-add-device-card .material-symbols-outlined { font-size: 32px; }
+.btn-add-device-card span { font-size: 0.9rem; font-weight: 600; }
+
+.custom-device-icon {
+    width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+    font-size: 36px; color: var(--green-600); background: var(--green-50); border-radius: var(--radius-sm);
+}
+
+/* Device Management List */
+.device-mgmt-list { display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-y: auto; margin-top: 10px; }
+.device-mgmt-item {
+    display: flex; align-items: center; gap: 12px; padding: 12px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
+}
+.device-mgmt-info { flex: 1; display: flex; flex-direction: column; }
+.device-mgmt-name { font-size: 0.9rem; font-weight: 600; color: var(--text); }
+.device-mgmt-type { font-size: 0.75rem; color: var(--text-muted); }
+.device-mgmt-actions { display: flex; gap: 6px; }
+.device-mgmt-actions .icon-btn { padding: 6px; }
+
+/* ══════════════════════════════════════════
    DESKTOP FRAME
 ══════════════════════════════════════════ */
 @media (min-width: 768px) {

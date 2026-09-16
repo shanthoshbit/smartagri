@@ -283,7 +283,10 @@
                     </div>
                 </div>
 
-                <div class="quick-actions">
+                <!-- Custom Devices Grid (Injected by JS) -->
+                <div id="custom-devices-home-grid" class="devices-grid"></div>
+
+                <div class="quick-actions mt-10">
                     <button id="btn-all-on" class="btn-secondary">
                         <span class="material-symbols-outlined">power</span> All Valves ON
                     </button>
@@ -531,6 +534,10 @@
                     </div>
 
                 </div>
+
+                <!-- Custom Devices List (Injected by JS) -->
+                <div id="custom-devices-control-list" class="control-list mt-20"></div>
+
             </section>
 
             <!-- ====== SCHEDULE SCREEN ====== -->
@@ -772,10 +779,7 @@
                         <div class="input-wrap">
                             <span class="material-symbols-outlined input-icon">router</span>
                             <select id="sch-device" class="form-input" required>
-                                <option value="valve1">Zone 1 (Valve 1)</option>
-                                <option value="valve2">Zone 2 (Valve 2)</option>
-                                <option value="valve3">Zone 3 (Valve 3)</option>
-                                <option value="pump">Water Pump</option>
+                                <!-- Populated by JS -->
                             </select>
                         </div>
                     </div>
@@ -893,6 +897,97 @@
                         Save Thresholds
                     </button>
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════ ADD DEVICE MODAL ═══════════════════ -->
+    <div id="add-device-modal" class="modal hidden">
+        <div class="modal-bg-overlay" id="add-device-overlay"></div>
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 id="add-device-title">Add Custom Device</h3>
+                <button class="icon-btn" id="btn-close-add-device" aria-label="Close">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="add-device-form">
+                    <input type="hidden" id="add-device-id" />
+                    
+                    <div class="form-group">
+                        <label>Device Name</label>
+                        <div class="input-wrap">
+                            <span class="material-symbols-outlined input-icon">edit</span>
+                            <input type="text" id="add-device-name" class="form-input" placeholder="e.g., Drip Valve 4" maxlength="24" required />
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>GPIO Pin</label>
+                            <div class="input-wrap">
+                                <span class="material-symbols-outlined input-icon">memory</span>
+                                <select id="add-device-gpio" class="form-input" required>
+                                    <!-- Populated by JS -->
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Description (Optional)</label>
+                        <div class="input-wrap">
+                            <span class="material-symbols-outlined input-icon">subject</span>
+                            <input type="text" id="add-device-desc" class="form-input" placeholder="e.g., Greenhouse drip line" maxlength="60" />
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Icon</label>
+                        <div class="icon-picker-grid" id="add-device-icon-grid">
+                            <!-- Populated by JS -->
+                        </div>
+                        <input type="hidden" id="add-device-icon" value="water_drop" />
+                    </div>
+
+                    <div class="form-group">
+                        <label>Custom Image (Optional)</label>
+                        <label class="image-upload-area" id="add-device-img-area">
+                            <span class="material-symbols-outlined">add_photo_alternate</span>
+                            <span>Upload Thumbnail</span>
+                            <img id="add-device-img-preview" class="image-preview" src="" alt="Preview" />
+                            <input type="file" id="add-device-img-input" class="image-upload-input" accept="image/jpeg, image/png, image/webp" />
+                        </label>
+                        <input type="hidden" id="add-device-img-base64" />
+                    </div>
+
+                    <button type="submit" class="btn-primary full-width mt-20">
+                        <span class="material-symbols-outlined">save</span>
+                        Save Device
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════ DEVICE MANAGEMENT MODAL ═══════════════════ -->
+    <div id="device-mgmt-modal" class="modal hidden">
+        <div class="modal-bg-overlay" id="device-mgmt-overlay"></div>
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Device Configuration</h3>
+                <button class="icon-btn" id="btn-close-device-mgmt" aria-label="Close">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="modal-body" style="padding-top: 10px;">
+                <button class="btn-primary full-width" id="btn-mgmt-add-device">
+                    <span class="material-symbols-outlined">add</span> Add New Device
+                </button>
+                <div class="device-mgmt-list" id="device-mgmt-list">
+                    <!-- Populated by JS -->
+                </div>
             </div>
         </div>
     </div>

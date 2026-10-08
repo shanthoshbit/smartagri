@@ -1154,3 +1154,19 @@ select.form-input { appearance: none; cursor: pointer; }
     .bottom-nav { position: absolute; }
 }
 
+/* ══════════════════════════════════════════
+   PHASE 4: DUAL-STATE UI
+══════════════════════════════════════════ */
+.pending-sync {
+    opacity: 0.6;
+    animation: pendingPulse 1.2s infinite alternate;
+}
+.pending-sync .dmini-name::after, .pending-sync .dlarge-info h3::after {
+    content: " (Syncing...)";
+    font-size: 0.7em;
+    color: var(--blue-500);
+}
+@keyframes pendingPulse {
+    0% { opacity: 0.8; }
+    100% { opacity: 0.4; }
+}

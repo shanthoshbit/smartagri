@@ -7,10 +7,22 @@
 import { initializeApp }                       from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
                                                 from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getDatabase, ref, onValue, set, update, push, remove }
+import { getDatabase, ref, get, onValue, set, update, push, remove }
                                                 from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 /* ──────────────────────────────────────────
+   SERVICE WORKER (PWA)
+────────────────────────────────────────── */
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+            .then(reg => console.log('[ServiceWorker] Registered:', reg.scope))
+            .catch(err => console.error('[ServiceWorker] Registration failed:', err));
+    });
+}
+
+/* ──────────────────────────────────────────
+
    FIREBASE CONFIG
 ────────────────────────────────────────── */
 const firebaseConfig = {
@@ -59,10 +71,382 @@ const PATHS = {
     fan:    "fan",
 };
 
-const VALID_ESP32_GPIOS = [2, 4, 5, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33];
+/* ── ESP32 38-Pin GPIO Classification ──
+   Categorized by function and boot-safety. See architecture doc §D. */
+const SMARTAGRI_OUTPUT_GPIOS = [4, 13, 14, 16, 17, 18, 19, 23, 25, 26, 27];
+const SYSTEM_DEVICE_GPIOS    = [16, 17, 18, 19, 25, 26];
+const CUSTOM_DEVICE_GPIOS    = [4, 13, 14, 23, 27];
+const SENSOR_GPIOS           = [32, 33, 34, 35, 36, 39];
+const I2C_GPIOS              = [21, 22];
+const RESERVED_GPIOS         = [0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 15];
+const VALID_ESP32_GPIOS      = [...CUSTOM_DEVICE_GPIOS]; // Only safe custom-assignable pins
 const HARDCODED_GPIOS = { pump: 16, valve1: 17, valve2: 18, valve3: 19, light: 25, fan: 26 };
 const MAX_CUSTOM_DEVICES = 12;
 const CUSTOM_DEVICE_ICONS = ["water_drop", "lightbulb", "power", "thermostat", "air", "sensors", "valve", "sprinkler", "grass", "eco", "bolt", "settings", "mode_fan", "toys", "opacity", "science"];
+
+/* ──────────────────────────────────────────
+   PRODUCTION FIREBASE SCHEMA v2.0
+────────────────────────────────────────── */
+const FARM_ID       = "farm_001";
+const CONTROLLER_ID = "esp32_main";
+const CONFIG_VERSION = "2.0";
+
+/* Path helpers */
+const P = {
+    farm:       () => `farms/${FARM_ID}`,
+    farmMeta:   () => `farms/${FARM_ID}/meta`,
+    ctrl:       () => `farms/${FARM_ID}/controllers/${CONTROLLER_ID}`,
+    ctrlMeta:   () => `farms/${FARM_ID}/controllers/${CONTROLLER_ID}/meta`,
+    heartbeat:  () => `farms/${FARM_ID}/controllers/${CONTROLLER_ID}/heartbeat`,
+    safety:     () => `farms/${FARM_ID}/controllers/${CONTROLLER_ID}/safety`,
+    dev:        (id) => `farms/${FARM_ID}/controllers/${CONTROLLER_ID}/devices/${id}`,
+    devConfig:  (id) => `farms/${FARM_ID}/controllers/${CONTROLLER_ID}/devices/${id}/config`,
+    devDesired: (id) => `farms/${FARM_ID}/controllers/${CONTROLLER_ID}/devices/${id}/desired`,
+    devTimer:   (id) => `farms/${FARM_ID}/controllers/${CONTROLLER_ID}/devices/${id}/timer`,
+    devStatus:  (id) => `farms/${FARM_ID}/controllers/${CONTROLLER_ID}/devices/${id}/status`,
+    sensors:    () => `farms/${FARM_ID}/controllers/${CONTROLLER_ID}/sensors`,
+    schedules:  () => `farms/${FARM_ID}/schedules`,
+    alerts:     () => `farms/${FARM_ID}/alerts`,
+    alertsCfg:  () => `farms/${FARM_ID}/alerts/config`,
+    alertsHist: () => `farms/${FARM_ID}/alerts/history`,
+    actLog:     () => `farms/${FARM_ID}/activityLog`,
+};
+
+/* System device definitions (GPIO + safety limits) */
+const SYSTEM_DEVICES = {
+    pump:   { name: "Water Pump",  type: "pump",  gpio: 16, icon: "water_drop", maxOnSec: 7200,  desc: "Main irrigation pump" },
+    valve1: { name: "Valve 1",     type: "valve", gpio: 17, icon: "valve",       maxOnSec: 3600,  desc: "Zone 1 solenoid valve" },
+    valve2: { name: "Valve 2",     type: "valve", gpio: 18, icon: "valve",       maxOnSec: 3600,  desc: "Zone 2 solenoid valve" },
+    valve3: { name: "Valve 3",     type: "valve", gpio: 19, icon: "valve",       maxOnSec: 3600,  desc: "Zone 3 solenoid valve" },
+    light:  { name: "Grow Light",  type: "light", gpio: 25, icon: "lightbulb",   maxOnSec: 43200, desc: "LED grow light panel" },
+    fan:    { name: "Exhaust Fan", type: "fan",   gpio: 26, icon: "mode_fan",    maxOnSec: 28800, desc: "Greenhouse exhaust fan" },
+};
+
+/* ── GPIO Whitelist Validation ──
+   Explicit accept/reject — no range-based checks.
+   Used in BOTH web UI and must match ESP32 firmware validation. */
+function validateGpioForCustomDevice(gpio) {
+    gpio = Number(gpio);
+    if (isNaN(gpio)) return { ok: false, reason: "GPIO must be a number" };
+    if (RESERVED_GPIOS.includes(gpio))
+        return { ok: false, reason: `GPIO ${gpio} is reserved (boot/flash/UART)` };
+    if (SYSTEM_DEVICE_GPIOS.includes(gpio))
+        return { ok: false, reason: `GPIO ${gpio} is reserved for system device (${Object.entries(SYSTEM_DEVICES).find(([,d]) => d.gpio === gpio)?.[1]?.name})` };
+    if (I2C_GPIOS.includes(gpio))
+        return { ok: false, reason: `GPIO ${gpio} is reserved for I2C bus (sensors)` };
+    if (SENSOR_GPIOS.includes(gpio))
+        return { ok: false, reason: `GPIO ${gpio} is reserved for sensor/analog input` };
+    if (!CUSTOM_DEVICE_GPIOS.includes(gpio))
+        return { ok: false, reason: `GPIO ${gpio} is not in the safe output whitelist [${CUSTOM_DEVICE_GPIOS.join(", ")}]` };
+    return { ok: true, reason: "" };
+}
+
+function isGpioAvailableForCustom(gpio, excludeId = null) {
+    const check = validateGpioForCustomDevice(gpio);
+    if (!check.ok) return check;
+    for (const [id, dev] of Object.entries(customDevicesCache)) {
+        if (id !== excludeId && Number(dev.gpio) === Number(gpio))
+            return { ok: false, reason: `GPIO ${gpio} is already used by "${dev.name}"` };
+    }
+    return { ok: true, reason: "" };
+}
+
+/* ── Desired / Status State Adapters ──
+   Web app writes desired/ → ESP32 (future) writes status/
+   During migration: web writes both + old paths for backward compat */
+async function writeDesiredState(deviceId, desiredState, mode = "manual", timerInfo = null) {
+    const commandId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const uid = auth.currentUser?.uid || "unknown";
+
+    const desired = {
+        desiredState,
+        mode,
+        source: `user:${uid}`,
+        commandId,
+        timestamp: Date.now(),
+    };
+
+    const statusUpdate = {
+        actualState: desiredState,
+        lastCommandId: commandId,
+        lastStateChange: Date.now(),
+        fault: false,
+        faultCode: "",
+    };
+
+    // Timer info (separate node)
+    const timer = timerInfo
+        ? { active: true,  endTime: timerInfo.endTime, source: timerInfo.source || mode }
+        : { active: false, endTime: 0, source: "" };
+
+    return await safeWrite(async () => {
+        // ── New schema writes ──
+        await set(ref(db, P.devDesired(deviceId)), desired);
+        await set(ref(db, P.devStatus(deviceId)),  statusUpdate);
+        await set(ref(db, P.devTimer(deviceId)),   timer);
+
+        // ── Legacy backward compat writes (old paths) ──
+        if (deviceId === "pump") {
+            await update(ref(db, "agriculture/waterPump"), { state: desiredState, mode });
+            if (timerInfo) {
+                await update(ref(db, "agriculture/waterPump/timer"), {
+                    enabled: timerInfo.active ?? true,
+                    startTime: timerInfo.startTime ?? Date.now(),
+                    endTime: timerInfo.endTime ?? 0,
+                    duration: timerInfo.durationSec ?? 0,
+                });
+            } else if (!desiredState) {
+                await update(ref(db, "agriculture/waterPump/timer"), { enabled: false, startTime: 0, endTime: 0, duration: 0 });
+            }
+        } else if (PATHS[deviceId]) {
+            await set(ref(db, `agriculture/${PATHS[deviceId]}/state`), desiredState);
+        }
+        // Custom devices: old path writes handled by caller
+    });
+}
+
+async function writeCustomDeviceState(customId, desiredState) {
+    const commandId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    return await safeWrite(async () => {
+        // New schema
+        await set(ref(db, P.devDesired(customId)), {
+            desiredState,
+            mode: "manual",
+            source: `user:${auth.currentUser?.uid || "unknown"}`,
+            commandId,
+            timestamp: Date.now(),
+        });
+        await set(ref(db, P.devStatus(customId)), {
+            actualState: desiredState,
+            lastCommandId: commandId,
+            lastStateChange: Date.now(),
+            fault: false,
+            faultCode: "",
+        });
+        // Legacy compat
+        await set(ref(db, `agriculture/customDevices/${customId}/state`), desiredState);
+        await set(ref(db, `agriculture/gpioConfig/${customId}/state`), desiredState);
+    });
+}
+
+/* ── Emergency Stop ── */
+async function triggerEmergencyStop() {
+    if (!confirm("⚠️ EMERGENCY STOP: This will force ALL devices OFF immediately. Continue?")) return;
+
+    await safeWrite(async () => {
+        // Set emergency flag
+        await set(ref(db, `${P.safety()}/emergencyStop`), true);
+        await set(ref(db, `${P.safety()}/triggeredAt`), Date.now());
+        await set(ref(db, `${P.safety()}/triggeredBy`), auth.currentUser?.uid || "unknown");
+
+        // Force all system devices OFF (new schema)
+        for (const devId of Object.keys(SYSTEM_DEVICES)) {
+            await set(ref(db, P.devDesired(devId)), {
+                desiredState: false, mode: "emergency",
+                source: "emergency_stop", commandId: "emergency", timestamp: Date.now(),
+            });
+            await set(ref(db, P.devStatus(devId)), {
+                actualState: false, lastCommandId: "emergency",
+                lastStateChange: Date.now(), fault: false, faultCode: "",
+            });
+            await set(ref(db, P.devTimer(devId)), { active: false, endTime: 0, source: "" });
+        }
+
+        // Legacy paths OFF
+        await update(ref(db, "agriculture/waterPump"), { state: false, mode: "manual" });
+        await update(ref(db, "agriculture/waterPump/timer"), { enabled: false, startTime: 0, endTime: 0, duration: 0 });
+        for (const key of ["valve1", "valve2", "valve3", "light", "fan"]) {
+            await set(ref(db, `agriculture/${PATHS[key]}/state`), false);
+        }
+
+        // Force all custom devices OFF
+        for (const [cid] of Object.entries(customDevicesCache)) {
+            await set(ref(db, `agriculture/customDevices/${cid}/state`), false);
+            await set(ref(db, `agriculture/gpioConfig/${cid}/state`), false);
+            await set(ref(db, P.devDesired(cid)), {
+                desiredState: false, mode: "emergency",
+                source: "emergency_stop", commandId: "emergency", timestamp: Date.now(),
+            });
+            await set(ref(db, P.devStatus(cid)), {
+                actualState: false, lastCommandId: "emergency",
+                lastStateChange: Date.now(), fault: false, faultCode: "",
+            });
+        }
+    });
+
+    // Clear pending schedule OFFs
+    _pendingOffs.clear();
+    stopCountdown();
+    showToast("🚨 EMERGENCY STOP — all devices forced OFF", "error");
+    logActivityToFirebase("Emergency Stop", "All devices forced OFF by user", "system");
+}
+
+async function clearEmergencyStop() {
+    await safeWrite(() => set(ref(db, `${P.safety()}/emergencyStop`), false));
+    showToast("Emergency stop cleared — devices can be controlled again", "success");
+    logActivityToFirebase("Emergency Stop", "Emergency stop cleared", "system");
+}
+
+/* ── Firebase Activity Log ──
+   Writes important events to Firebase (not every UI event).
+   localStorage log is kept for quick rendering; Firebase is the durable store. */
+async function logActivityToFirebase(title, desc, category = "device") {
+    try {
+        const entry = {
+            timestamp: Date.now(),
+            action: title,
+            detail: desc,
+            category,
+            source: `user:${auth.currentUser?.uid || "unknown"}`,
+        };
+        await push(ref(db, P.actLog()), entry);
+    } catch (e) {
+        console.warn("[SmartAgri] Failed to log activity to Firebase:", e);
+    }
+}
+
+/* ── Migration: Initialize Farm Structure ──
+   Creates the new hierarchy WITHOUT deleting old paths.
+   Safe to call multiple times (uses set with merge-style logic). */
+async function initializeFarmStructure() {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+
+    try {
+        // Check if farm meta already exists
+        const metaSnap = await get(ref(db, P.farmMeta()));
+        if (metaSnap.exists()) {
+            console.log("[SmartAgri] Farm structure already initialized (v" + CONFIG_VERSION + ")");
+            return; // Already migrated
+        }
+
+        console.log("[SmartAgri] Initializing new farm structure...");
+
+        // Farm meta
+        await set(ref(db, P.farmMeta()), {
+            name: "SmartAgri Farm",
+            ownerId: uid,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            configVersion: CONFIG_VERSION,
+            createdAt: Date.now(),
+        });
+
+        // Controller meta
+        await set(ref(db, P.ctrlMeta()), {
+            name: "Main ESP32 Controller",
+            firmwareVersion: "pending",
+            configVersion: CONFIG_VERSION,
+        });
+
+        // Safety defaults
+        await set(ref(db, P.safety()), {
+            emergencyStop: false,
+            triggeredAt: 0,
+            triggeredBy: "",
+        });
+
+        // System devices → config + status + desired
+        for (const [devId, dev] of Object.entries(SYSTEM_DEVICES)) {
+            await set(ref(db, P.devConfig(devId)), {
+                name: dev.name,
+                type: dev.type,
+                gpio: dev.gpio,
+                icon: dev.icon,
+                description: dev.desc,
+                maxOnDurationSec: dev.maxOnSec,
+                defaultState: false,
+                enabled: true,
+                category: "system",
+                createdAt: Date.now(),
+            });
+            await set(ref(db, P.devDesired(devId)), {
+                desiredState: false,
+                mode: "manual",
+                source: "init",
+                commandId: "init",
+                timestamp: Date.now(),
+            });
+            await set(ref(db, P.devTimer(devId)), {
+                active: false,
+                endTime: 0,
+                source: "",
+            });
+            await set(ref(db, P.devStatus(devId)), {
+                actualState: false,
+                fault: false,
+                faultCode: "",
+                lastCommandId: "init",
+                lastStateChange: Date.now(),
+                runTimeTodaySec: 0,
+                totalCycles: 0,
+            });
+        }
+
+        // Migrate existing custom devices to new structure
+        const customSnap = await get(ref(db, "agriculture/customDevices"));
+        if (customSnap.exists()) {
+            for (const [cid, cdev] of Object.entries(customSnap.val())) {
+                await set(ref(db, P.devConfig(cid)), {
+                    name: cdev.name || "Custom Device",
+                    type: "custom",
+                    gpio: cdev.gpio,
+                    icon: cdev.icon || "water_drop",
+                    description: cdev.description || "",
+                    maxOnDurationSec: 3600,
+                    defaultState: false,
+                    enabled: cdev.enabled !== false,
+                    category: "custom",
+                    imageBase64: cdev.imageBase64 || null,
+                    createdAt: cdev.createdAt || Date.now(),
+                });
+                await set(ref(db, P.devDesired(cid)), {
+                    desiredState: cdev.state || false,
+                    mode: "manual", source: "migration", commandId: "migration", timestamp: Date.now(),
+                });
+                await set(ref(db, P.devStatus(cid)), {
+                    actualState: cdev.state || false,
+                    fault: false, faultCode: "",
+                    lastCommandId: "migration", lastStateChange: Date.now(),
+                });
+                await set(ref(db, P.devTimer(cid)), { active: false, endTime: 0, source: "" });
+            }
+        }
+
+        // Migrate existing schedules
+        const schedSnap = await get(ref(db, "agriculture/schedules"));
+        if (schedSnap.exists()) {
+            for (const [sid, sched] of Object.entries(schedSnap.val())) {
+                await set(ref(db, `${P.schedules()}/${sid}`), {
+                    ...sched,
+                    durationMin: sched.duration || sched.durationMin || 10,
+                    controllerId: CONTROLLER_ID,
+                    priority: 50,
+                    lastTriggered: 0,
+                    lastCompleted: 0,
+                    createdBy: uid,
+                });
+            }
+        }
+
+        // Migrate alert thresholds from localStorage to Firebase
+        const localThresholds = JSON.parse(localStorage.getItem("smartagri-thresholds") || "null");
+        if (localThresholds) {
+            await set(ref(db, P.alertsCfg()), {
+                ...localThresholds,
+                cooldownMin: 60,
+            });
+        }
+
+        // Log migration
+        await logActivityToFirebase("System", "Farm structure initialized — schema v" + CONFIG_VERSION, "system");
+        console.log("[SmartAgri] Farm structure initialized successfully.");
+        showToast("System initialized — production schema v" + CONFIG_VERSION, "success");
+
+    } catch (err) {
+        console.error("[SmartAgri] Migration failed:", err);
+        showToast("Schema migration failed — check console", "error");
+    }
+}
 
 /* Firebase-friendly error messages */
 const FB_ERRORS = {
@@ -373,10 +757,17 @@ function startListeners() {
         updateSystemStatus();
     });
 
-    // Simple device states (valves, light, fan)
+    // Simple device states (Phase 4 Dual State)
     ["valve1", "valve2", "valve3", "light", "fan"].forEach(key => {
-        onValue(ref(db, `agriculture/${PATHS[key]}/state`), snap => {
-            syncDeviceUI(key, snap.val() === true);
+        onValue(ref(db, P.devDesired(key) + "/desiredState"), snap => {
+            const desired = snap.val() === true;
+            const actual = _deviceStates[key]?.actual ?? false;
+            syncDeviceUI(key, desired, actual);
+        });
+        onValue(ref(db, P.devStatus(key) + "/actualState"), snap => {
+            const actual = snap.val() === true;
+            const desired = _deviceStates[key]?.desired ?? false;
+            syncDeviceUI(key, desired, actual);
         });
     });
 
@@ -386,42 +777,51 @@ function startListeners() {
         updateSensorDisplays(d);
     });
 
-    // Water pump (complex – has mode, timer, state)
-    onValue(ref(db, "agriculture/waterPump"), snap => {
-        const data  = snap.val() ?? {};
-        const on    = data.state === true;
-        const mode  = data.mode  ?? "manual";
-        const timer = data.timer ?? {};
+    // Water pump (Phase 4 Dual State)
+    onValue(ref(db, P.devDesired("pump")), snap => {
+        const data = snap.val() ?? {};
+        const desired = data.desiredState === true;
+        const mode = data.mode ?? "manual";
 
-        syncDeviceUI("pump", on);
-        updatePumpStats(on);
-        on ? startPumpRunTracker() : stopPumpRunTracker();
+        const actual = _deviceStates["pump"]?.actual ?? false;
+        syncDeviceUI("pump", desired, actual);
 
         // Mode toggle UI
         const isTimer = mode === "timer";
-        btnModeManual.classList.toggle("active", !isTimer);
-        btnModeTimer .classList.toggle("active",  isTimer);
-        pumpTimerView.classList.toggle("hidden",  !isTimer);
+        if (btnModeManual) btnModeManual.classList.toggle("active", !isTimer);
+        if (btnModeTimer)  btnModeTimer.classList.toggle("active",  isTimer);
+        if (pumpTimerView) pumpTimerView.classList.toggle("hidden",  !isTimer);
+    });
 
-        // Timer display
-        const timerEnabled = timer.enabled === true;
+    onValue(ref(db, P.devStatus("pump") + "/actualState"), snap => {
+        const actual = snap.val() === true;
+        const desired = _deviceStates["pump"]?.desired ?? false;
+        syncDeviceUI("pump", desired, actual);
+        
+        updatePumpStats(actual);
+        actual ? startPumpRunTracker() : stopPumpRunTracker();
+    });
+
+    onValue(ref(db, P.devTimer("pump")), snap => {
+        const timer = snap.val() ?? {};
+        const timerEnabled = timer.active === true;
         const fbEnd        = timer.endTime  ?? 0;
-        const fbDur        = timer.duration ?? 0;
+        const fbDur        = timer.durationSec ?? 0;
 
         if (timerEnabled && fbEnd > 0) {
             state.timerEndTime  = fbEnd;
             state.timerDuration = fbDur;
             if (fbEnd - Date.now() > 0) {
-                timerActiveDisplay.classList.remove("hidden");
-                timerSetupDisplay .classList.add("hidden");
+                if (timerActiveDisplay) timerActiveDisplay.classList.remove("hidden");
+                if (timerSetupDisplay)  timerSetupDisplay.classList.add("hidden");
                 startCountdown();
             } else {
                 handleTimerExpired();
             }
         } else {
             stopCountdown();
-            timerActiveDisplay.classList.add("hidden");
-            timerSetupDisplay .classList.remove("hidden");
+            if (timerActiveDisplay) timerActiveDisplay.classList.add("hidden");
+            if (timerSetupDisplay)  timerSetupDisplay.classList.remove("hidden");
         }
     });
 
@@ -607,19 +1007,28 @@ function updateSensorDisplays(d) {
     if (typeof checkSensorAlerts === "function") checkSensorAlerts(d);
 }
 
-/* Sync toggle + card active state from Firebase */
-function syncDeviceUI(key, on) {
+/* Sync toggle + card active state from Firebase (Phase 4 Dual State) */
+const _deviceStates = {};
+function syncDeviceUI(key, desired, actual) {
+    if (actual === undefined) actual = desired; // Fallback
+    _deviceStates[key] = { desired, actual };
+
     const { mini, large } = toggles[key] ?? {};
     const { mini: miniCard, large: largeCard } = cards[key] ?? {};
 
-    if (mini  && mini.checked  !== on) {
-        mini.checked = on;
+    if (mini  && mini.checked  !== desired) mini.checked = desired;
+    if (large && large.checked !== desired) large.checked = desired;
+    
+    const isPending = (desired !== actual);
+
+    if (miniCard) {
+        miniCard.classList.toggle("active", actual);
+        miniCard.classList.toggle("pending-sync", isPending);
     }
-    if (large && large.checked !== on) {
-        large.checked = on;
+    if (largeCard) {
+        largeCard.classList.toggle("active", actual);
+        largeCard.classList.toggle("pending-sync", isPending);
     }
-    if (miniCard)  miniCard.classList.toggle("active", on);
-    if (largeCard) largeCard.classList.toggle("active", on);
 }
 
 /* ──────────────────────────────────────────
@@ -643,20 +1052,95 @@ async function safeWrite(writeFn, rollbackFn) {
     }
 }
 
+/* Toggle debounce — prevents race conditions from rapid clicks (B10 fix) */
+const _toggleInFlight = new Set();
+
+/** Phase 4 command structure adapter */
+async function writeDesiredState(deviceId, desiredState, mode = "manual", timerObj = null) {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return false;
+    
+    // Legacy dual-write for backward compatibility
+    let legacyPath = "";
+    if (PATHS[deviceId]) legacyPath = `agriculture/${PATHS[deviceId]}/state`;
+    if (deviceId === "pump") legacyPath = `agriculture/waterPump`;
+
+    return await safeWrite(async () => {
+        const commandId = crypto.randomUUID();
+        const promises = [];
+        
+        // Write to new schema command node
+        promises.push(update(ref(db, P.devDesired(deviceId)), {
+            desiredState: desiredState,
+            mode: mode,
+            commandId: commandId,
+            timestamp: Date.now(),
+        }));
+        
+        // Write timer info if present
+        if (timerObj) {
+            promises.push(update(ref(db, P.devTimer(deviceId)), timerObj));
+        }
+        
+        // Dual write to legacy for backward compatibility until ESP32 firmware is flashed
+        if (legacyPath) {
+            if (deviceId === "pump") {
+                promises.push(update(ref(db, legacyPath), { state: desiredState, mode: mode }));
+                if (timerObj) {
+                    promises.push(update(ref(db, legacyPath + "/timer"), {
+                        enabled: timerObj.active,
+                        startTime: timerObj.startTime || 0,
+                        endTime: timerObj.endTime || 0,
+                        duration: timerObj.durationSec || 0
+                    }));
+                } else if (!desiredState) {
+                    promises.push(update(ref(db, legacyPath + "/timer"), {
+                        enabled: false, startTime: 0, endTime: 0, duration: 0
+                    }));
+                }
+            } else {
+                promises.push(set(ref(db, legacyPath), desiredState));
+            }
+        }
+        
+        await Promise.all(promises);
+    });
+}
+
+/** Phase 4 custom device adapter */
+async function writeCustomDeviceState(deviceId, desiredState, mode = "manual") {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return false;
+    
+    return await safeWrite(async () => {
+        const commandId = crypto.randomUUID();
+        const promises = [
+            update(ref(db, P.devDesired(deviceId)), {
+                desiredState, mode, commandId, timestamp: Date.now()
+            }),
+            // Legacy dual-write
+            set(ref(db, `agriculture/customDevices/${deviceId}/state`), desiredState),
+            set(ref(db, `agriculture/gpioConfig/${deviceId}/state`), desiredState)
+        ];
+        await Promise.all(promises);
+    });
+}
+
 function bindToggles() {
     // Simple devices: valve1-3, light, fan
     ["valve1", "valve2", "valve3", "light", "fan"].forEach(key => {
         const handler = async (e) => {
             const el = e.target;
+            if (_toggleInFlight.has(key)) { el.checked = !el.checked; return; }
+            _toggleInFlight.add(key);
             const on = el.checked;
-            const ok = await safeWrite(
-                () => set(ref(db, `agriculture/${PATHS[key]}/state`), on),
-                () => { el.checked = !on; }
-            );
+            const ok = await writeDesiredState(key, on, "manual");
+            if (!ok) el.checked = !on;
             if (ok) {
                 showToast(`${friendlyName(key)} turned ${on ? "ON" : "OFF"}`);
                 if (typeof logActivity === "function") logActivity(friendlyName(key), `Turned ${on ? "ON" : "OFF"} manually`, "device");
             }
+            setTimeout(() => _toggleInFlight.delete(key), 800);
         };
         if (toggles[key].mini)  toggles[key].mini .addEventListener("change", handler);
         if (toggles[key].large) toggles[key].large.addEventListener("change", handler);
@@ -665,23 +1149,17 @@ function bindToggles() {
     // Pump (has mode + timer awareness)
     const handlePump = async (e) => {
         const el = e.target;
+        if (_toggleInFlight.has("pump")) { el.checked = !el.checked; return; }
+        _toggleInFlight.add("pump");
         const on = el.checked;
 
-        const ok = await safeWrite(
-            async () => {
-                if (on) {
-                    await update(ref(db, "agriculture/waterPump"), { state: true, mode: "manual" });
-                } else {
-                    await update(ref(db, "agriculture/waterPump"), { state: false, mode: "manual" });
-                    await update(ref(db, "agriculture/waterPump/timer"), { enabled: false, startTime: 0, endTime: 0, duration: 0 });
-                }
-            },
-            () => { el.checked = !on; }
-        );
+        const ok = await writeDesiredState("pump", on, "manual", null);
+        if (!ok) el.checked = !on;
         if (ok) {
             showToast(`Water Pump turned ${on ? "ON" : "OFF"}`);
             if (typeof logActivity === "function") logActivity("Water Pump", `Turned ${on ? "ON" : "OFF"} manually`, "device");
         }
+        setTimeout(() => _toggleInFlight.delete("pump"), 800);
     };
     toggles.pump.mini .addEventListener("change", handlePump);
     toggles.pump.large.addEventListener("change", handlePump);
@@ -703,13 +1181,11 @@ btnAllOn ?.addEventListener("click", () => setAllValves(true));
 btnAllOff?.addEventListener("click", () => setAllValves(false));
 
 async function setAllValves(on) {
-    const ok = await safeWrite(
-        () => update(ref(db), {
-            "agriculture/valve1/state": on,
-            "agriculture/valve2/state": on,
-            "agriculture/valve3/state": on,
-        })
-    );
+    const ok = await safeWrite(async () => {
+        await writeDesiredState("valve1", on, "manual");
+        await writeDesiredState("valve2", on, "manual");
+        await writeDesiredState("valve3", on, "manual");
+    });
     if (ok) {
         showToast(`All valves turned ${on ? "ON" : "OFF"}`);
         if (typeof logActivity === "function") logActivity("All Valves", `Turned ${on ? "ON" : "OFF"} manually`, "device");
@@ -761,25 +1237,14 @@ btnStartTimer?.addEventListener("click", async () => {
     if (tot > 24 * 3600) { showToast("Duration too long (max 24h)", "error"); return; }
 
     const now = Date.now();
-    const ok = await safeWrite(() =>
-        Promise.all([
-            update(ref(db, "agriculture/waterPump"), { state: true, mode: "timer" }),
-            update(ref(db, "agriculture/waterPump/timer"), {
-                enabled: true, startTime: now,
-                endTime: now + tot * 1000, duration: tot
-            }),
-        ])
-    );
+    const ok = await writeDesiredState("pump", true, "timer", {
+        active: true, startTime: now, endTime: now + tot * 1000, durationSec: tot
+    });
     if (ok) showToast(`Timer set for ${fmtRuntime(tot)}`);
 });
 
 btnStopTimer?.addEventListener("click", async () => {
-    const ok = await safeWrite(() =>
-        Promise.all([
-            update(ref(db, "agriculture/waterPump"), { state: false, mode: "manual" }),
-            update(ref(db, "agriculture/waterPump/timer"), { enabled: false, startTime: 0, endTime: 0, duration: 0 }),
-        ])
-    );
+    const ok = await writeDesiredState("pump", false, "manual", null);
     if (ok) showToast("Pump stopped");
 });
 
@@ -806,11 +1271,11 @@ function stopCountdown() {
     if (pumpProgress) pumpProgress.style.width = "100%";
 }
 
-function handleTimerExpired() {
+async function handleTimerExpired() {
     stopCountdown();
-    update(ref(db, "agriculture/waterPump"), { state: false, mode: "manual" });
-    update(ref(db, "agriculture/waterPump/timer"), { enabled: false, startTime: 0, endTime: 0, duration: 0 });
+    await writeDesiredState("pump", false, "manual", null);
     showToast("Timer complete — pump stopped", "info");
+    if (typeof logActivity === "function") logActivity("Water Pump", "Timer expired — pump stopped automatically", "schedule");
 }
 
 /* ──────────────────────────────────────────
@@ -1044,58 +1509,20 @@ schForm?.addEventListener("submit", async (e) => {
     }
 });
 
-/* Listen for schedule changes */
-function startScheduleListener() {
-    onValue(ref(db, "agriculture/schedules"), snap => {
-        renderSchedules(snap.val());
-    });
-}
+/* startScheduleListener() removed — merged into startScheduleListenerWithCache() (B7 fix) */
 
-/* Schedule engine – runs every minute, triggers device ON/OFF */
+/* Schedule deduplication — prevents re-triggering within same minute (B8 fix) */
+const _scheduleDedup = {};
+
+/* Persistent scheduled-OFF tracker — moved to ESP32 firmware (Phase 3).
+   The browser no longer executes schedules. It only creates/edits them. */
+const _pendingOffs = new Map();
+
+/* Schedule engine — execution moved to ESP32 firmware */
 function startScheduleEngine() {
-    if (scheduleEngineInterval) return;
-    scheduleEngineInterval = setInterval(async () => {
-        if (!state.firebaseConnected || !state.esp32Online) return;
-        const now  = new Date();
-        const day  = now.getDay(); // 0=Sun
-        const hh   = String(now.getHours()).padStart(2, "0");
-        const mm   = String(now.getMinutes()).padStart(2, "0");
-        const hhmm = `${hh}:${mm}`;
-        // Fetch current schedules snapshot – we already have it via listener
-        // but for safety use onValue snapshot cached via global
-        if (!window._schedSnap) return;
-        for (const [id, s] of Object.entries(window._schedSnap)) {
-            if (!s.enabled) continue;
-            if (!s.days || !s.days.includes(day)) continue;
-            if (s.time !== hhmm) continue;
-            // Trigger the device ON
-            const path = s.device === "pump"
-                ? "agriculture/waterPump"
-                : `agriculture/${PATHS[s.device]}`;
-            if (s.device === "pump") {
-                const durMs  = s.duration * 60 * 1000;
-                const nowMs  = Date.now();
-                await update(ref(db, path), { state: true, mode: "timer" });
-                await update(ref(db, `${path}/timer`), { enabled: true, startTime: nowMs, endTime: nowMs + durMs, duration: s.duration * 60 });
-            } else if (PATHS[s.device]) {
-                // Hardcoded valves
-                await set(ref(db, `${path}/state`), true);
-                setTimeout(() => set(ref(db, `${path}/state`), false), s.duration * 60 * 1000);
-            } else {
-                // Custom device
-                const customPath = `agriculture/customDevices/${s.device}/state`;
-                const customGpioPath = `agriculture/gpioConfig/${s.device}/state`;
-                await set(ref(db, customPath), true);
-                await set(ref(db, customGpioPath), true);
-                setTimeout(async () => {
-                    await set(ref(db, customPath), false);
-                    await set(ref(db, customGpioPath), false);
-                }, s.duration * 60 * 1000);
-            }
-            const label = DEVICE_LABELS[s.device] || (customDevicesCache[s.device] ? customDevicesCache[s.device].name : s.device);
-            showToast(`Schedule triggered: ${label}`, "info");
-        }
-    }, 60_000);
+    // [Phase 3] Browser execution disabled.
+    // The ESP32 now downloads schedules from Firebase and executes them locally via NTP.
+    console.log("[SmartAgri] Browser schedule engine disabled. ESP32 handles execution.");
 }
 
 /* Cache schedules snapshot globally for engine */
@@ -1674,18 +2101,16 @@ function renderCustomDeviceLarge(id, dev) {
 function bindCustomDeviceToggle(id, dev) {
     const handler = async (e) => {
         const el = e.target;
+        if (_toggleInFlight.has(id)) { el.checked = !el.checked; return; }
+        _toggleInFlight.add(id);
         const on = el.checked;
-        const ok = await safeWrite(
-            async () => {
-                await set(ref(db, `agriculture/customDevices/${id}/state`), on);
-                await set(ref(db, `agriculture/gpioConfig/${id}/state`), on);
-            },
-            () => { el.checked = !on; }
-        );
+        const ok = await writeCustomDeviceState(id, on);
+        if (!ok) el.checked = !on;
         if (ok) {
             showToast(`${dev.name} turned ${on ? "ON" : "OFF"}`);
             if (typeof logActivity === "function") logActivity(dev.name, `Turned ${on ? "ON" : "OFF"} manually`, "device");
         }
+        setTimeout(() => _toggleInFlight.delete(id), 800);
     };
     const miniToggle = $(`mini-toggle-${id}`);
     const largeToggle = $(`toggle-${id}`);
@@ -1797,10 +2222,11 @@ onAuthStateChanged(auth, user => {
         elApp.classList.remove("hidden");
         if (!state.appInitialized) {
             state.appInitialized = true;
+            await initializeFarmStructure();
             bindToggles();
             startListeners();
             startScheduleListenerWithCache();
-            startScheduleEngine();
+            // startScheduleEngine(); // Disabled, ESP32 handles this now
             initRealtimeTemperature();
         }
     } else {
@@ -1813,5 +2239,4 @@ onAuthStateChanged(auth, user => {
     }
 });
 
-// Also trigger immediate weather fetch for fast splash load
-initRealtimeTemperature();
+/* Weather fetch moved inside onAuthStateChanged (L1804) — no pre-auth API calls */

@@ -1,0 +1,97 @@
+{
+  "rules": {
+    "farms": {
+      "$farmId": {
+        ".read": "auth != null && root.child('farms/' + $farmId + '/meta/ownerId').val() === auth.uid",
+
+        "meta": {
+          ".write": "auth != null && (!data.exists() || data.child('ownerId').val() === auth.uid)",
+          ".validate": "newData.hasChildren(['name', 'ownerId'])"
+        },
+
+        "controllers": {
+          "$controllerId": {
+            "meta": {
+              ".write": "auth != null && root.child('farms/' + $farmId + '/meta/ownerId').val() === auth.uid"
+            },
+
+            "heartbeat": {
+              ".write": "auth != null && auth.token.controller === true",
+              ".validate": "newData.hasChild('lastSeen')"
+            },
+
+            "safety": {
+              ".write": "auth != null && root.child('farms/' + $farmId + '/meta/ownerId').val() === auth.uid"
+            },
+
+            "devices": {
+              "$deviceId": {
+                "config": {
+                  ".write": "auth != null && root.child('farms/' + $farmId + '/meta/ownerId').val() === auth.uid",
+                  ".validate": "newData.hasChildren(['name', 'gpio', 'type']) && newData.child('gpio').isNumber()"
+                },
+
+                "desired": {
+                  ".write": "auth != null && root.child('farms/' + $farmId + '/meta/ownerId').val() === auth.uid",
+                  ".validate": "newData.hasChild('desiredState') && newData.child('desiredState').isBoolean()"
+                },
+
+                "timer": {
+                  ".write": "auth != null && root.child('farms/' + $farmId + '/meta/ownerId').val() === auth.uid"
+                },
+
+                "status": {
+                  ".write": "auth != null && (auth.token.controller === true || root.child('farms/' + $farmId + '/meta/ownerId').val() === auth.uid)",
+                  ".validate": "newData.hasChild('actualState') && newData.child('actualState').isBoolean()"
+                }
+              }
+            },
+
+            "sensors": {
+              ".write": "auth != null && (auth.token.controller === true || root.child('farms/' + $farmId + '/meta/ownerId').val() === auth.uid)",
+              ".validate": "newData.hasChild('timestamp')"
+            }
+          }
+        },
+
+        "schedules": {
+          "$scheduleId": {
+            ".write": "auth != null && root.child('farms/' + $farmId + '/meta/ownerId').val() === auth.uid",
+            ".validate": "newData.hasChildren(['device', 'time', 'durationMin', 'days', 'enabled']) && newData.child('durationMin').isNumber() && newData.child('durationMin').val() > 0 && newData.child('durationMin').val() <= 1440"
+          }
+        },
+
+        "alerts": {
+          "config": {
+            ".write": "auth != null && root.child('farms/' + $farmId + '/meta/ownerId').val() === auth.uid"
+          },
+          "history": {
+            "$alertId": {
+              ".write": "auth != null && root.child('farms/' + $farmId + '/meta/ownerId').val() === auth.uid"
+            }
+          }
+        },
+
+        "activityLog": {
+          "$logId": {
+            ".write": "auth != null && root.child('farms/' + $farmId + '/meta/ownerId').val() === auth.uid",
+            ".validate": "newData.hasChildren(['timestamp', 'action', 'category'])"
+          }
+        }
+      }
+    },
+
+    "agriculture": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "system": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "sensors": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    }
+  }
+}

@@ -10,6 +10,10 @@ import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
 import { getDatabase, ref, get, onValue, set, update, push, remove }
                                                 from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
+// #region agent log
+fetch('http://127.0.0.1:7788/ingest/a4c7ca9e-7865-48c2-8fa7-77d81adffc1f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'fe7424'},body:JSON.stringify({sessionId:'fe7424',runId:'post-fix',hypothesisId:'A',location:'app.js:module-top',message:'app.js module evaluating after parse',data:{ok:true},timestamp:Date.now()})}).catch(()=>{});
+// #endregion
+
 /* ──────────────────────────────────────────
    SERVICE WORKER (PWA)
 ────────────────────────────────────────── */
@@ -1054,77 +1058,6 @@ async function safeWrite(writeFn, rollbackFn) {
 
 /* Toggle debounce — prevents race conditions from rapid clicks (B10 fix) */
 const _toggleInFlight = new Set();
-
-/** Phase 4 command structure adapter */
-async function writeDesiredState(deviceId, desiredState, mode = "manual", timerObj = null) {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return false;
-    
-    // Legacy dual-write for backward compatibility
-    let legacyPath = "";
-    if (PATHS[deviceId]) legacyPath = `agriculture/${PATHS[deviceId]}/state`;
-    if (deviceId === "pump") legacyPath = `agriculture/waterPump`;
-
-    return await safeWrite(async () => {
-        const commandId = crypto.randomUUID();
-        const promises = [];
-        
-        // Write to new schema command node
-        promises.push(update(ref(db, P.devDesired(deviceId)), {
-            desiredState: desiredState,
-            mode: mode,
-            commandId: commandId,
-            timestamp: Date.now(),
-        }));
-        
-        // Write timer info if present
-        if (timerObj) {
-            promises.push(update(ref(db, P.devTimer(deviceId)), timerObj));
-        }
-        
-        // Dual write to legacy for backward compatibility until ESP32 firmware is flashed
-        if (legacyPath) {
-            if (deviceId === "pump") {
-                promises.push(update(ref(db, legacyPath), { state: desiredState, mode: mode }));
-                if (timerObj) {
-                    promises.push(update(ref(db, legacyPath + "/timer"), {
-                        enabled: timerObj.active,
-                        startTime: timerObj.startTime || 0,
-                        endTime: timerObj.endTime || 0,
-                        duration: timerObj.durationSec || 0
-                    }));
-                } else if (!desiredState) {
-                    promises.push(update(ref(db, legacyPath + "/timer"), {
-                        enabled: false, startTime: 0, endTime: 0, duration: 0
-                    }));
-                }
-            } else {
-                promises.push(set(ref(db, legacyPath), desiredState));
-            }
-        }
-        
-        await Promise.all(promises);
-    });
-}
-
-/** Phase 4 custom device adapter */
-async function writeCustomDeviceState(deviceId, desiredState, mode = "manual") {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return false;
-    
-    return await safeWrite(async () => {
-        const commandId = crypto.randomUUID();
-        const promises = [
-            update(ref(db, P.devDesired(deviceId)), {
-                desiredState, mode, commandId, timestamp: Date.now()
-            }),
-            // Legacy dual-write
-            set(ref(db, `agriculture/customDevices/${deviceId}/state`), desiredState),
-            set(ref(db, `agriculture/gpioConfig/${deviceId}/state`), desiredState)
-        ];
-        await Promise.all(promises);
-    });
-}
 
 function bindToggles() {
     // Simple devices: valve1-3, light, fan
@@ -2215,7 +2148,10 @@ $("set-device")?.addEventListener("click", () => openDeviceMgmtModal());
 /* ──────────────────────────────────────────
    AUTH STATE → INIT
 ────────────────────────────────────────── */
-onAuthStateChanged(auth, user => {
+onAuthStateChanged(auth, async user => {
+    // #region agent log
+    fetch('http://127.0.0.1:7788/ingest/a4c7ca9e-7865-48c2-8fa7-77d81adffc1f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'fe7424'},body:JSON.stringify({sessionId:'fe7424',runId:'post-fix',hypothesisId:'C',location:'app.js:onAuthStateChanged',message:'auth-state-fired',data:{hasUser:!!user},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     if (user) {
         elLoading.classList.add("fade-out");
         elLogin.classList.add("hidden");
@@ -2237,6 +2173,9 @@ onAuthStateChanged(auth, user => {
         stopPumpRunTracker();
         state.appInitialized = false;
     }
+    // #region agent log
+    fetch('http://127.0.0.1:7788/ingest/a4c7ca9e-7865-48c2-8fa7-77d81adffc1f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'fe7424'},body:JSON.stringify({sessionId:'fe7424',runId:'post-fix',hypothesisId:'C',location:'app.js:onAuthStateChanged',message:'splash-dismissed',data:{hasFadeOut:elLoading.classList.contains('fade-out')},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
 });
 
 /* Weather fetch moved inside onAuthStateChanged (L1804) — no pre-auth API calls */

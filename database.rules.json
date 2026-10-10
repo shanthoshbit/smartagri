@@ -2,7 +2,7 @@
   "rules": {
     "farms": {
       "$farmId": {
-        ".read": "auth != null && root.child('farms/' + $farmId + '/meta/ownerId').val() === auth.uid",
+        ".read": "auth != null && (!root.child('farms/' + $farmId + '/meta').exists() || root.child('farms/' + $farmId + '/meta/ownerId').val() === auth.uid)",
 
         "meta": {
           ".write": "auth != null && (!data.exists() || data.child('ownerId').val() === auth.uid)",

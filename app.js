@@ -10,7 +10,9 @@ import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
 import { getDatabase, ref, get, onValue, set, update, push, remove }
                                                 from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-
+// #region agent log
+fetch('http://127.0.0.1:7788/ingest/a4c7ca9e-7865-48c2-8fa7-77d81adffc1f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'fe7424'},body:JSON.stringify({sessionId:'fe7424',runId:'post-fix',hypothesisId:'A',location:'app.js:module-top',message:'app.js module evaluating after parse',data:{ok:true},timestamp:Date.now()})}).catch(()=>{});
+// #endregion
 
 /* ──────────────────────────────────────────
    SERVICE WORKER (PWA)
@@ -2147,7 +2149,9 @@ $("set-device")?.addEventListener("click", () => openDeviceMgmtModal());
    AUTH STATE → INIT
 ────────────────────────────────────────── */
 onAuthStateChanged(auth, async user => {
-
+    // #region agent log
+    fetch('http://127.0.0.1:7788/ingest/a4c7ca9e-7865-48c2-8fa7-77d81adffc1f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'fe7424'},body:JSON.stringify({sessionId:'fe7424',runId:'post-fix',hypothesisId:'C',location:'app.js:onAuthStateChanged',message:'auth-state-fired',data:{hasUser:!!user},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     if (user) {
         elLoading.classList.add("fade-out");
         elLogin.classList.add("hidden");
@@ -2169,7 +2173,9 @@ onAuthStateChanged(auth, async user => {
         stopPumpRunTracker();
         state.appInitialized = false;
     }
-
+    // #region agent log
+    fetch('http://127.0.0.1:7788/ingest/a4c7ca9e-7865-48c2-8fa7-77d81adffc1f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'fe7424'},body:JSON.stringify({sessionId:'fe7424',runId:'post-fix',hypothesisId:'C',location:'app.js:onAuthStateChanged',message:'splash-dismissed',data:{hasFadeOut:elLoading.classList.contains('fade-out')},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
 });
 
 /* Weather fetch moved inside onAuthStateChanged (L1804) — no pre-auth API calls */

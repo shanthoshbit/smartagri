@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="description" content="SmartAgri – Professional ESP32 Agriculture IoT Automation Dashboard." />
     <meta name="theme-color" content="#16a34a" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>SmartAgri</title>
 
@@ -324,7 +323,8 @@
                         <div class="pump-controls">
                             <div class="pump-mode-toggle">
                                 <button class="mode-btn active" id="btn-mode-manual">Manual</button>
-                                <button class="mode-btn" id="btn-mode-timer">Auto</button>
+                                <button class="mode-btn" id="btn-mode-timer">Timer</button>
+                                <button class="mode-btn" id="btn-mode-auto">Auto</button>
                             </div>
 
                             <!-- Pump Stats Row -->
@@ -349,6 +349,22 @@
                                         <span class="pump-stat-lbl">Water Usage (Est.)</span>
                                         <span class="pump-stat-val" id="pump-water-usage">0 Liters</span>
                                     </div>
+                                </div>
+                            </div>
+
+                            <!-- Auto View -->
+                            <div id="pump-auto-view" class="timer-view hidden">
+                                <div style="padding: 15px; text-align: center; color: var(--text-muted); font-size: 0.9em;">
+                                    <p>Auto mode uses soil moisture sensors to automatically run the pump.</p>
+                                    <div style="margin-top: 15px;">
+                                        <label style="display:block; margin-bottom:5px;">Turn ON when moisture drops below:</label>
+                                        <input type="number" id="auto-soil-min" value="1000" style="padding:5px; width:80px; text-align:center; border-radius:5px; border:1px solid var(--border-color); color:black;"> ppm
+                                    </div>
+                                    <div style="margin-top: 10px;">
+                                        <label style="display:block; margin-bottom:5px;">Turn OFF when moisture reaches:</label>
+                                        <input type="number" id="auto-soil-max" value="2000" style="padding:5px; width:80px; text-align:center; border-radius:5px; border:1px solid var(--border-color); color:black;"> ppm
+                                    </div>
+                                    <button class="btn-primary mt-10 full-width" id="btn-save-auto" style="margin-top: 15px;">Save & Enable Auto</button>
                                 </div>
                             </div>
 
@@ -992,34 +1008,6 @@
         </div>
     </div>
 
-    <script type="module">
-    // #region agent log
-    (async () => {
-        const _dbg = (hypothesisId, message, data) =>
-            fetch('http://127.0.0.1:7788/ingest/a4c7ca9e-7865-48c2-8fa7-77d81adffc1f', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'fe7424' },
-                body: JSON.stringify({ sessionId: 'fe7424', runId: 'post-fix', hypothesisId, location: 'index.html:boot', message, data, timestamp: Date.now() })
-            }).catch(() => {});
-        _dbg('C', 'splash-boot-probe', { href: location.href, hasLoadingScreen: !!document.getElementById('loading-screen') });
-        try {
-            await import('./app.js');
-            _dbg('A', 'app-js-loaded', { ok: true });
-            _dbg('C', 'post-import-splash-state', {
-                loadingClasses: document.getElementById('loading-screen')?.className || null
-            });
-        } catch (e) {
-            _dbg('A', 'app-js-failed', { ok: false, name: e.name, message: String(e.message || e) });
-            _dbg('B', 'check-duplicate-hint', {
-                mentionsWriteDesiredState: String(e.message || '').includes('writeDesiredState'),
-                mentionsWriteCustomDeviceState: String(e.message || '').includes('writeCustomDeviceState')
-            });
-            _dbg('C', 'splash-stuck-after-parse-error', {
-                loadingVisible: !document.getElementById('loading-screen')?.classList.contains('fade-out')
-            });
-        }
-    })();
-    // #endregion
-    </script>
+    <script type="module" src="./app.js"></script>
 </body>
 </html>

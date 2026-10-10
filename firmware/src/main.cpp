@@ -17,6 +17,7 @@
 FirebaseAuth auth;
 FirebaseConfig config;
 FirebaseData fbdoStream;
+FirebaseData fbdoStreamSched;
 FirebaseData fbdo;
 
 Preferences nvs;
@@ -27,6 +28,7 @@ bool timeValid = false;
 bool emergencyStopActive = false;
 unsigned long lastHeartbeat = 0;
 unsigned long lastTimeSync = 0;
+int currentSoilMoisture = 0;
 
 int wifiReconnects = 0;
 int firebaseReconnects = 0;
@@ -35,6 +37,8 @@ String lastError = "";
 // Forward declarations
 void triggerEmergencyStop();
 void clearEmergencyStop();
+
+bool fetchSchedulesRequired = false;
 
 /* ──────────────────────────────────────────
    NVS MANAGER
@@ -150,6 +154,11 @@ struct Device {
     
     // Manual Override
     unsigned long manualOverrideUntilMs;
+
+    // Auto Mode
+    String mode;
+    int autoSoilMin;
+    int autoSoilMax;
 };
 
 std::vector<Device> devices;
@@ -217,12 +226,12 @@ namespace DeviceManager {
     }
 
     void init() {
-        devices.push_back({"pump",   "pump",  GPIO_PUMP,   true, true, false, false, false, SAFE_OFF, 7200, 0, false, 0, 0, 0, "", false, "", 0});
-        devices.push_back({"valve1", "valve", GPIO_VALVE1, true, true, false, false, false, SAFE_OFF, 3600, 0, false, 0, 0, 0, "", false, "", 0});
-        devices.push_back({"valve2", "valve", GPIO_VALVE2, true, true, false, false, false, SAFE_OFF, 3600, 0, false, 0, 0, 0, "", false, "", 0});
-        devices.push_back({"valve3", "valve", GPIO_VALVE3, true, true, false, false, false, SAFE_OFF, 3600, 0, false, 0, 0, 0, "", false, "", 0});
-        devices.push_back({"light",  "light", GPIO_LIGHT,  true, true, false, false, false, SAFE_OFF, 43200,0, false, 0, 0, 0, "", false, "", 0});
-        devices.push_back({"fan",    "fan",   GPIO_FAN,    true, true, false, false, false, SAFE_OFF, 28800,0, false, 0, 0, 0, "", false, "", 0});
+        devices.push_back({"pump",   "pump",  GPIO_PUMP,   true, true, false, false, false, SAFE_OFF, 7200, 0, false, 0, 0, 0, "", false, "", 0, "manual", 1000, 2000});
+        devices.push_back({"valve1", "valve", GPIO_VALVE1, true, true, false, false, false, SAFE_OFF, 3600, 0, false, 0, 0, 0, "", false, "", 0, "manual", 1000, 2000});
+        devices.push_back({"valve2", "valve", GPIO_VALVE2, true, true, false, false, false, SAFE_OFF, 3600, 0, false, 0, 0, 0, "", false, "", 0, "manual", 1000, 2000});
+        devices.push_back({"valve3", "valve", GPIO_VALVE3, true, true, false, false, false, SAFE_OFF, 3600, 0, false, 0, 0, 0, "", false, "", 0, "manual", 1000, 2000});
+        devices.push_back({"light",  "light", GPIO_LIGHT,  true, true, false, false, false, SAFE_OFF, 43200,0, false, 0, 0, 0, "", false, "", 0, "manual", 1000, 2000});
+        devices.push_back({"fan",    "fan",   GPIO_FAN,    true, true, false, false, false, SAFE_OFF, 28800,0, false, 0, 0, 0, "", false, "", 0, "manual", 1000, 2000});
 
         for (auto &dev : devices) {
             pinMode(dev.gpio, OUTPUT);
@@ -299,6 +308,21 @@ namespace DeviceManager {
                     dev.timerActive = false;
                     dev.timerEpochEndTime = 0;
                     NVSManager::saveTimer(dev.id, 0);
+                }
+            }
+
+            // 4.5 Auto Mode Logic
+            if (dev.mode == "auto" && !emergencyStopActive && !dev.hasFault && dev.id == "pump") {
+                if (millis() > dev.manualOverrideUntilMs) {
+                    if (!dev.actualState && currentSoilMoisture > 0 && currentSoilMoisture < dev.autoSoilMin) {
+                        Serial.printf("[AUTO] Soil %d < %d, turning ON\n", currentSoilMoisture, dev.autoSoilMin);
+                        turnOn(dev, 0);
+                        dev.desiredState = true;
+                    } else if (dev.actualState && currentSoilMoisture >= dev.autoSoilMax) {
+                        Serial.printf("[AUTO] Soil %d >= %d, turning OFF\n", currentSoilMoisture, dev.autoSoilMax);
+                        turnOffSafe(dev, "AUTO_THRESHOLD_MET");
+                        dev.desiredState = false;
+                    }
                 }
             }
 
@@ -417,18 +441,21 @@ namespace SensorManager {
     unsigned long lastSample = 0;
     
     void init() {
-        // analogReadResolution(12); // ESP32 default
+        pinMode(32, INPUT);
     }
     
     void update() {
         if (millis() - lastSample < 5000) return;
         lastSample = millis();
         
-        // Example: Non-blocking analog read
-        // int raw = analogRead(32);
-        // int mapped = map(raw, 0, 4095, 0, 100);
-        // if (mapped < 0 || mapped > 100) return; // Fault detection
-        // write to firebase if changed significantly
+        currentSoilMoisture = analogRead(32);
+        
+        if (Firebase.ready()) {
+            FirebaseJson json;
+            json.set("soil", currentSoilMoisture);
+            json.set("timestamp", timeValid ? (int)timeClient.getEpochTime() : (int)(millis() / 1000));
+            Firebase.RTDB.updateNodeAsync(&fbdo, "sensors", &json);
+        }
     }
 }
 
@@ -466,14 +493,44 @@ void streamCallback(FirebaseStream data) {
         Device* dev = getDevice(devId);
         if (!dev) return; 
         
-        if (subPath == "/desired/desiredState") {
+        if (subPath == "/desired") {
+            if (data.dataType() == "json") {
+                FirebaseJsonData jd;
+                data.jsonObject().get(jd, "desiredState");
+                if (jd.success && jd.boolValue != dev->actualState) {
+                    dev->desiredState = jd.boolValue;
+                    dev->manualOverrideUntilMs = millis() + (60 * 60 * 1000);
+                }
+                data.jsonObject().get(jd, "mode");
+                if (jd.success) dev->mode = jd.stringValue;
+            }
+        }
+        else if (subPath == "/desired/desiredState") {
             bool state = data.boolData();
             if (state != dev->actualState) {
                 dev->desiredState = state;
                 // Track manual override if user clicks UI
                 dev->manualOverrideUntilMs = millis() + (60 * 60 * 1000); // 1 hour override
             }
-        } 
+        }
+        else if (subPath == "/desired/mode") {
+            dev->mode = data.stringData();
+        }
+        else if (subPath == "/config/autoSoilMin") {
+            dev->autoSoilMin = data.intData();
+        }
+        else if (subPath == "/config/autoSoilMax") {
+            dev->autoSoilMax = data.intData();
+        }
+        else if (subPath == "/config") {
+            if (data.dataType() == "json") {
+                FirebaseJsonData jd;
+                data.jsonObject().get(jd, "autoSoilMin");
+                if (jd.success) dev->autoSoilMin = jd.intValue;
+                data.jsonObject().get(jd, "autoSoilMax");
+                if (jd.success) dev->autoSoilMax = jd.intValue;
+            }
+        }
         else if (subPath == "/desired/commandId") {
             String newCmd = data.stringData();
             if (newCmd == dev->lastCommandId) {
@@ -507,13 +564,10 @@ void streamTimeoutCallback(bool timeout) {
     if (timeout) Serial.println("[STREAM] Timeout, resuming...");
 }
 
-// Separate callback for Schedules (which are at farm level, not controller level in Phase 2)
+// Separate callback for Schedules
 void scheduleStreamCallback(FirebaseStream data) {
-    if (data.dataType() == "json") {
-        FirebaseJson json;
-        json.setJsonData(data.jsonString());
-        Scheduler::updateScheduleCache(json);
-    }
+    fetchSchedulesRequired = true;
+    Serial.println("[SCHEDULER] Schedule change detected, queued for fetch.");
 }
 
 void initFirebase() {
@@ -541,6 +595,12 @@ void initFirebase() {
         json.setJsonData(fbdoSched.jsonString());
         Scheduler::updateScheduleCache(json);
     }
+
+    fbdoStreamSched.setResponseSize(2048);
+    if (!Firebase.RTDB.beginStream(&fbdoStreamSched, schedPath.c_str())) {
+        Serial.printf("[FB] Sched stream failed: %s\n", fbdoStreamSched.errorReason().c_str());
+    }
+    Firebase.RTDB.setStreamCallback(&fbdoStreamSched, scheduleStreamCallback, streamTimeoutCallback);
 }
 
 void processHeartbeat() {
@@ -613,6 +673,16 @@ void loop() {
         wifiReconnects++;
     }
     
+    if (fetchSchedulesRequired && Firebase.ready()) {
+        fetchSchedulesRequired = false;
+        String schedPath = String("farms/") + FARM_ID + "/schedules";
+        if (Firebase.RTDB.getJSON(&fbdo, schedPath.c_str())) {
+            FirebaseJson json;
+            json.setJsonData(fbdo.jsonString());
+            Scheduler::updateScheduleCache(json);
+        }
+    }
+    
     TimeManager::update();
     SensorManager::update();
     Scheduler::update();
@@ -621,6 +691,7 @@ void loop() {
     
     if (Firebase.ready()) {
         Firebase.RTDB.readStream(&fbdoStream);
+        Firebase.RTDB.readStream(&fbdoStreamSched);
     }
     
     delay(10);

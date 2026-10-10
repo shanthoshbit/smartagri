@@ -10,9 +10,7 @@ import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
 import { getDatabase, ref, get, onValue, set, update, push, remove }
                                                 from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-// #region agent log
-fetch('http://127.0.0.1:7788/ingest/a4c7ca9e-7865-48c2-8fa7-77d81adffc1f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'fe7424'},body:JSON.stringify({sessionId:'fe7424',runId:'post-fix',hypothesisId:'A',location:'app.js:module-top',message:'app.js module evaluating after parse',data:{ok:true},timestamp:Date.now()})}).catch(()=>{});
-// #endregion
+
 
 /* ──────────────────────────────────────────
    SERVICE WORKER (PWA)
@@ -393,7 +391,7 @@ async function initializeFarmStructure() {
                 await set(ref(db, P.devConfig(cid)), {
                     name: cdev.name || "Custom Device",
                     type: "custom",
-                    gpio: cdev.gpio,
+                    gpio: Number(cdev.gpio) || 0,
                     icon: cdev.icon || "water_drop",
                     description: cdev.description || "",
                     maxOnDurationSec: 3600,
@@ -421,8 +419,12 @@ async function initializeFarmStructure() {
         if (schedSnap.exists()) {
             for (const [sid, sched] of Object.entries(schedSnap.val())) {
                 await set(ref(db, `${P.schedules()}/${sid}`), {
+                    device: sched.device || "pump",
+                    time: sched.time || "00:00",
+                    days: sched.days || [0,1,2,3,4,5,6],
+                    enabled: sched.enabled !== false,
                     ...sched,
-                    durationMin: sched.duration || sched.durationMin || 10,
+                    durationMin: Number(sched.duration || sched.durationMin || 10),
                     controllerId: CONTROLLER_ID,
                     priority: 50,
                     lastTriggered: 0,
@@ -529,7 +531,12 @@ const cards = {
 // Pump timer
 const btnModeManual      = $("btn-mode-manual");
 const btnModeTimer       = $("btn-mode-timer");
+const btnModeAuto        = $("btn-mode-auto");
 const pumpTimerView      = $("pump-timer-view");
+const pumpAutoView       = $("pump-auto-view");
+const btnSaveAuto        = $("btn-save-auto");
+const autoSoilMin        = $("auto-soil-min");
+const autoSoilMax        = $("auto-soil-max");
 const timerActiveDisplay = $("timer-active-display");
 const timerSetupDisplay  = $("timer-setup-display");
 const pumpTimeRem        = $("pump-time-rem");
@@ -787,14 +794,20 @@ function startListeners() {
         const desired = data.desiredState === true;
         const mode = data.mode ?? "manual";
 
+        if (!_deviceStates["pump"]) _deviceStates["pump"] = {};
+        _deviceStates["pump"].mode = mode;
+
         const actual = _deviceStates["pump"]?.actual ?? false;
         syncDeviceUI("pump", desired, actual);
 
         // Mode toggle UI
         const isTimer = mode === "timer";
-        if (btnModeManual) btnModeManual.classList.toggle("active", !isTimer);
+        const isAuto = mode === "auto";
+        if (btnModeManual) btnModeManual.classList.toggle("active", !isTimer && !isAuto);
         if (btnModeTimer)  btnModeTimer.classList.toggle("active",  isTimer);
+        if (btnModeAuto)   btnModeAuto.classList.toggle("active",  isAuto);
         if (pumpTimerView) pumpTimerView.classList.toggle("hidden",  !isTimer);
+        if (pumpAutoView)  pumpAutoView.classList.toggle("hidden",  !isAuto);
     });
 
     onValue(ref(db, P.devStatus("pump") + "/actualState"), snap => {
@@ -1086,7 +1099,8 @@ function bindToggles() {
         _toggleInFlight.add("pump");
         const on = el.checked;
 
-        const ok = await writeDesiredState("pump", on, "manual", null);
+        const currentMode = _deviceStates["pump"]?.mode ?? "manual";
+        const ok = await writeDesiredState("pump", on, currentMode, null);
         if (!ok) el.checked = !on;
         if (ok) {
             showToast(`Water Pump turned ${on ? "ON" : "OFF"}`);
@@ -1129,17 +1143,55 @@ async function setAllValves(on) {
    PUMP MODE BUTTONS
 ────────────────────────────────────────── */
 btnModeManual?.addEventListener("click", async () => {
-    const ok = await safeWrite(() => update(ref(db, "agriculture/waterPump"), { mode: "manual" }));
+    const ok = await safeWrite(async () => {
+        await update(ref(db, "agriculture/waterPump"), { mode: "manual" });
+        await update(ref(db, P.devDesired("pump")), { mode: "manual" });
+    });
     if (ok) {
         showToast("Switched to Manual mode", "info");
         if (typeof logActivity === "function") logActivity("Water Pump Mode", "Switched to Manual mode", "device");
     }
 });
 btnModeTimer?.addEventListener("click", async () => {
-    const ok = await safeWrite(() => update(ref(db, "agriculture/waterPump"), { mode: "timer" }));
+    const ok = await safeWrite(async () => {
+        await update(ref(db, "agriculture/waterPump"), { mode: "timer" });
+        await update(ref(db, P.devDesired("pump")), { mode: "timer" });
+    });
     if (ok) {
-        showToast("Switched to Auto/Timer mode", "info");
+        showToast("Switched to Timer mode", "info");
         if (typeof logActivity === "function") logActivity("Water Pump Mode", "Switched to Timer mode", "device");
+    }
+});
+btnModeAuto?.addEventListener("click", async () => {
+    const ok = await safeWrite(async () => {
+        await update(ref(db, "agriculture/waterPump"), { mode: "auto" });
+        await update(ref(db, P.devDesired("pump")), { mode: "auto" });
+    });
+    if (ok) {
+        showToast("Switched to Auto mode", "info");
+        if (typeof logActivity === "function") logActivity("Water Pump Mode", "Switched to Auto mode", "device");
+        
+        // Load existing auto settings
+        const snap = await get(ref(db, P.devConfig("pump")));
+        const cfg = snap.val() || {};
+        if (autoSoilMin) autoSoilMin.value = cfg.autoSoilMin || 1000;
+        if (autoSoilMax) autoSoilMax.value = cfg.autoSoilMax || 2000;
+    }
+});
+
+btnSaveAuto?.addEventListener("click", async () => {
+    const minVal = parseInt(autoSoilMin.value);
+    const maxVal = parseInt(autoSoilMax.value);
+    if (isNaN(minVal) || isNaN(maxVal) || minVal >= maxVal) {
+        showToast("Invalid thresholds", "error");
+        return;
+    }
+    const ok = await safeWrite(() => update(ref(db, P.devConfig("pump")), {
+        autoSoilMin: minVal,
+        autoSoilMax: maxVal
+    }));
+    if (ok) {
+        showToast("Auto thresholds saved", "success");
     }
 });
 
@@ -1295,7 +1347,7 @@ function openSchModal(editData = null) {
     schIdInput.value    = editData?.id      ?? "";
     schDevice.value     = editData?.device  ?? "valve1";
     schTime.value       = editData?.time    ?? "";
-    schDuration.value   = editData?.duration?? "";
+    schDuration.value   = editData?.durationMin ?? editData?.duration ?? "";
     // Reset day selection
     schDayBtns.forEach(b => b.classList.toggle("active", editData ? editData.days.includes(Number(b.dataset.day)) : false));
     scheduleModal.classList.remove("hidden");
@@ -1358,7 +1410,7 @@ function renderSchedules(schedulesObj) {
         const icon    = DEVICE_ICONS[s.device] ?? "timer";
         const label   = DEVICE_LABELS[s.device] ?? s.device;
         const start12 = fmtTime12(s.time);
-        const end12   = fmtEndTime12(s.time, s.duration);
+        const end12   = fmtEndTime12(s.time, s.durationMin || s.duration);
         const dayStr  = s.days && s.days.length > 0
             ? (s.days.length === 7 ? "Daily" : s.days.map(d => DAY_NAMES[d]).join(", "))
             : "No days set";
@@ -1372,7 +1424,7 @@ function renderSchedules(schedulesObj) {
                 <div class="sch-info">
                     <h3>${label}</h3>
                     <span class="sch-time">${start12} – ${end12}</span>
-                    <span class="sch-days">${dayStr} · ${s.duration} min</span>
+                    <span class="sch-days">${dayStr} · ${s.durationMin || s.duration} min</span>
                 </div>
                 <label class="toggle-switch" aria-label="Toggle schedule">
                     <input type="checkbox" class="sch-enable-toggle" data-id="${id}" ${enabled ? "checked" : ""}>
@@ -1394,7 +1446,7 @@ function renderSchedules(schedulesObj) {
     scheduleList.querySelectorAll(".sch-enable-toggle").forEach(chk => {
         chk.addEventListener("change", async () => {
             const id = chk.dataset.id;
-            await safeWrite(() => update(ref(db, `agriculture/schedules/${id}`), { enabled: chk.checked }));
+            await safeWrite(() => update(ref(db, `${P.schedules()}/${id}`), { enabled: chk.checked }));
         });
     });
     scheduleList.querySelectorAll(".sch-btn.edit").forEach(btn => {
@@ -1407,7 +1459,7 @@ function renderSchedules(schedulesObj) {
     scheduleList.querySelectorAll(".sch-btn.delete").forEach(btn => {
         btn.addEventListener("click", async () => {
             const id = btn.dataset.id;
-            const ok = await safeWrite(() => remove(ref(db, `agriculture/schedules/${id}`)));
+            const ok = await safeWrite(() => remove(ref(db, `${P.schedules()}/${id}`)));
             if (ok) showToast("Schedule deleted");
         });
     });
@@ -1425,16 +1477,16 @@ schForm?.addEventListener("submit", async (e) => {
     const payload = {
         device:   schDevice.value,
         time:     schTime.value,
-        duration: Number(schDuration.value),
+        durationMin: Number(schDuration.value),
         days,
         enabled:  true,
     };
 
     let ok;
     if (id) {
-        ok = await safeWrite(() => update(ref(db, `agriculture/schedules/${id}`), payload));
+        ok = await safeWrite(() => update(ref(db, `${P.schedules()}/${id}`), payload));
     } else {
-        ok = await safeWrite(() => push(ref(db, "agriculture/schedules"), payload));
+        ok = await safeWrite(() => push(ref(db, P.schedules()), payload));
     }
     if (ok) {
         closeSchModal();
@@ -1460,7 +1512,7 @@ function startScheduleEngine() {
 
 /* Cache schedules snapshot globally for engine */
 function startScheduleListenerWithCache() {
-    onValue(ref(db, "agriculture/schedules"), snap => {
+    onValue(ref(db, P.schedules()), snap => {
         window._schedSnap = snap.val() ?? {};
         renderSchedules(snap.val());
     });
@@ -2149,9 +2201,7 @@ $("set-device")?.addEventListener("click", () => openDeviceMgmtModal());
    AUTH STATE → INIT
 ────────────────────────────────────────── */
 onAuthStateChanged(auth, async user => {
-    // #region agent log
-    fetch('http://127.0.0.1:7788/ingest/a4c7ca9e-7865-48c2-8fa7-77d81adffc1f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'fe7424'},body:JSON.stringify({sessionId:'fe7424',runId:'post-fix',hypothesisId:'C',location:'app.js:onAuthStateChanged',message:'auth-state-fired',data:{hasUser:!!user},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+
     if (user) {
         elLoading.classList.add("fade-out");
         elLogin.classList.add("hidden");
@@ -2173,9 +2223,7 @@ onAuthStateChanged(auth, async user => {
         stopPumpRunTracker();
         state.appInitialized = false;
     }
-    // #region agent log
-    fetch('http://127.0.0.1:7788/ingest/a4c7ca9e-7865-48c2-8fa7-77d81adffc1f',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'fe7424'},body:JSON.stringify({sessionId:'fe7424',runId:'post-fix',hypothesisId:'C',location:'app.js:onAuthStateChanged',message:'splash-dismissed',data:{hasFadeOut:elLoading.classList.contains('fade-out')},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+
 });
 
 /* Weather fetch moved inside onAuthStateChanged (L1804) — no pre-auth API calls */
